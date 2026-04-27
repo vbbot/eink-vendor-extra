@@ -1,4 +1,4 @@
-From 6c6bc27852a94ed9a1a89bd462f0db72f96d41ff Mon Sep 17 00:00:00 2001
+From f434ac7aa6c75dc02cb847dd98bbf26a9f1cb4fd Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 13:34:52 +0200
 Subject: [PATCH] eink: add E-Ink display settings and button config
@@ -12,13 +12,13 @@ new E-Ink category.
 
 Change-Id: I6debd4f068645334137517ea081d50e970a0626d
 ---
- res/values/eink_strings.xml                   |  71 +++++++++++
+ res/values/eink_strings.xml                   |  69 +++++++++++
  res/xml/display_settings.xml                  |  12 ++
  res/xml/eink_button_settings.xml              |  47 ++++++++
  res/xml/eink_display_settings.xml             |  56 +++++++++
  .../eink/EinkButtonConfigFragment.java        | 104 ++++++++++++++++
  .../display/eink/EinkSettingsFragment.java    | 113 ++++++++++++++++++
- 6 files changed, 403 insertions(+)
+ 6 files changed, 401 insertions(+)
  create mode 100644 res/values/eink_strings.xml
  create mode 100644 res/xml/eink_button_settings.xml
  create mode 100644 res/xml/eink_display_settings.xml
@@ -27,10 +27,10 @@ Change-Id: I6debd4f068645334137517ea081d50e970a0626d
 
 diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
 new file mode 100644
-index 00000000000..3f846e0bf71
+index 00000000000..823e8b53d57
 --- /dev/null
 +++ b/res/values/eink_strings.xml
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,69 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources>
 +    <!-- E-Ink Settings -->
@@ -58,14 +58,12 @@ index 00000000000..3f846e0bf71
 +
 +    <!-- Refresh mode entries -->
 +    <string-array name="eink_refresh_mode_entries">
-+        <item>Balanced</item>
-+        <item>Clear (fast)</item>
-+        <item>Smooth (slow, best quality)</item>
++        <item>Clear</item>
++        <item>A2</item>
 +        <item>Speed (fastest)</item>
 +    </string-array>
 +    <string-array name="eink_refresh_mode_values">
 +        <item>1</item>
-+        <item>2</item>
 +        <item>3</item>
 +        <item>4</item>
 +    </string-array>

@@ -1,4 +1,4 @@
-From ff92206cf5ee9031889bb1804a3842bb583c265a Mon Sep 17 00:00:00 2001
+From a968d1712ca69dad2417b0be93f4370a2a23aca9 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
 Subject: [PATCH] eink: fix Settings.System writes using
@@ -6,9 +6,437 @@ Subject: [PATCH] eink: fix Settings.System writes using
 
 Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
- .../server/eink/EinkManagerService.java       | 39 ++++++++++++++-----
- 1 file changed, 30 insertions(+), 9 deletions(-)
+ .../res/layout/eink_center_overlay.xml        |  76 ++++++-------
+ .../systemui/eink/EinkCenterController.java   | 100 +++++++++++-------
+ .../server/eink/EinkManagerService.java       |  39 +++++--
+ 3 files changed, 125 insertions(+), 90 deletions(-)
 
+diff --git a/packages/SystemUI/res/layout/eink_center_overlay.xml b/packages/SystemUI/res/layout/eink_center_overlay.xml
+index 0cfb0143c300..9bd8e332194a 100644
+--- a/packages/SystemUI/res/layout/eink_center_overlay.xml
++++ b/packages/SystemUI/res/layout/eink_center_overlay.xml
+@@ -4,7 +4,7 @@
+     android:layout_width="match_parent"
+     android:layout_height="wrap_content"
+     android:orientation="vertical"
+-    android:background="#FF000000"
++    android:background="#FFFFFFFF"
+     android:padding="16dp"
+     android:paddingBottom="32dp">
+ 
+@@ -18,7 +18,7 @@
+             android:layout_height="wrap_content"
+             android:layout_centerVertical="true"
+             android:text="E-INK CENTER"
+-            android:textColor="#FFFFFFFF"
++            android:textColor="#FF000000"
+             android:textStyle="bold"
+             android:textSize="16sp"
+             android:letterSpacing="0.1" />
+@@ -36,8 +36,8 @@
+                 android:layout_height="40dp"
+                 android:text="↺ REFRESH"
+                 android:textSize="11sp"
+-                android:textColor="#FF000000"
+-                android:backgroundTint="#FFFFFFFF"
++                android:textColor="#FFFFFFFF"
++                android:backgroundTint="#FF000000"
+                 android:minWidth="0dp"
+                 android:paddingStart="12dp"
+                 android:paddingEnd="12dp" />
+@@ -50,8 +50,8 @@
+                 android:layout_height="40dp"
+                 android:text="✕"
+                 android:textSize="14sp"
+-                android:textColor="#FF000000"
+-                android:backgroundTint="#FFFFFFFF"
++                android:textColor="#FFFFFFFF"
++                android:backgroundTint="#FF000000"
+                 android:minWidth="0dp"
+                 android:padding="0dp" />
+         </LinearLayout>
+@@ -61,7 +61,7 @@
+     <View
+         android:layout_width="match_parent"
+         android:layout_height="1dp"
+-        android:background="#55FFFFFF"
++        android:background="#55000000"
+         android:layout_marginBottom="16dp" />
+ 
+     <!-- Cold frontlight label -->
+@@ -69,7 +69,7 @@
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:text="COLD LIGHT"
+-        android:textColor="#AAFFFFFF"
++        android:textColor="#AA000000"
+         android:textSize="11sp"
+         android:letterSpacing="0.08"
+         android:layout_marginBottom="8dp" />
+@@ -85,30 +85,30 @@
+         <Button android:id="@+id/cold_dec_coarse"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="−−" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+         <Button android:id="@+id/cold_dec"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="−" android:textSize="20sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+         <TextView android:id="@+id/cold_value"
+             android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="wrap_content"
+-            android:textColor="#FFFFFFFF"
++            android:textColor="#FF000000"
+             android:textSize="24sp" android:textStyle="bold"
+             android:gravity="center" />
+         <Button android:id="@+id/cold_inc"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="+" android:textSize="20sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+         <Button android:id="@+id/cold_inc_coarse"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="++" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+     </LinearLayout>
+ 
+@@ -117,7 +117,7 @@
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:text="WARM LIGHT"
+-        android:textColor="#AAFFFFFF"
++        android:textColor="#AA000000"
+         android:textSize="11sp"
+         android:letterSpacing="0.08"
+         android:layout_marginBottom="8dp" />
+@@ -133,30 +133,30 @@
+         <Button android:id="@+id/warm_dec_coarse"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="−−" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+         <Button android:id="@+id/warm_dec"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="−" android:textSize="20sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+         <TextView android:id="@+id/warm_value"
+             android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="wrap_content"
+-            android:textColor="#FFFFFFFF"
++            android:textColor="#FF000000"
+             android:textSize="24sp" android:textStyle="bold"
+             android:gravity="center" />
+         <Button android:id="@+id/warm_inc"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="+" android:textSize="20sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+         <Button android:id="@+id/warm_inc_coarse"
+             android:layout_width="52dp" android:layout_height="44dp"
+             android:text="++" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+             android:minWidth="0dp" android:padding="0dp" />
+     </LinearLayout>
+ 
+@@ -164,7 +164,7 @@
+     <View
+         android:layout_width="match_parent"
+         android:layout_height="1dp"
+-        android:background="#55FFFFFF"
++        android:background="#55000000"
+         android:layout_marginBottom="16dp" />
+ 
+     <!-- Refresh mode label -->
+@@ -172,46 +172,40 @@
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:text="REFRESH MODE"
+-        android:textColor="#AAFFFFFF"
++        android:textColor="#AA000000"
+         android:textSize="11sp"
+         android:letterSpacing="0.08"
+         android:layout_marginBottom="8dp" />
+ 
+-    <!-- Refresh mode 2x2 grid -->
+-    <GridLayout
++    <!-- Refresh mode buttons: CLEAR=1, A2=3, SPEED=4 -->
++    <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+-        android:columnCount="2"
+-        android:rowCount="2"
++        android:orientation="horizontal"
+         android:layout_marginBottom="16dp">
+ 
+-        <Button android:id="@+id/mode_balanced"
+-            android:layout_width="0dp" android:layout_columnWeight="1"
+-            android:layout_height="44dp" android:layout_margin="2dp"
+-            android:text="BALANCED" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
+         <Button android:id="@+id/mode_clear"
+-            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="44dp" android:layout_margin="2dp"
+             android:text="CLEAR" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
+-        <Button android:id="@+id/mode_smooth"
+-            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:textColor="#FF000000" android:backgroundTint="#FFE0E0E0" />
++        <Button android:id="@+id/mode_a2"
++            android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="44dp" android:layout_margin="2dp"
+-            android:text="SMOOTH" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
++            android:text="A2" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFE0E0E0" />
+         <Button android:id="@+id/mode_speed"
+-            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="44dp" android:layout_margin="2dp"
+             android:text="SPEED" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
+-    </GridLayout>
++            android:textColor="#FF000000" android:backgroundTint="#FFE0E0E0" />
++    </LinearLayout>
+ 
+     <!-- Divider -->
+     <View
+         android:layout_width="match_parent"
+         android:layout_height="1dp"
+-        android:background="#55FFFFFF"
++        android:background="#55000000"
+         android:layout_marginBottom="16dp" />
+ 
+     <!-- Presets label -->
+@@ -219,7 +213,7 @@
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:text="PRESETS"
+-        android:textColor="#AAFFFFFF"
++        android:textColor="#AA000000"
+         android:textSize="11sp"
+         android:letterSpacing="0.08"
+         android:layout_marginBottom="8dp" />
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+index 38ad47bc7ef2..c66008b15a57 100644
+--- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+@@ -50,18 +50,23 @@ public class EinkCenterController implements CoreStartable {
+ 
+     private static final String TAG = "EinkCenterController";
+ 
+-    // Frontlight step sizes
+-    private static final int COLD_FINE   = 5;
+-    private static final int COLD_COARSE = 20;
+-    private static final int WARM_FINE   = 10;
+-    private static final int WARM_COARSE = 50;
++    // Hardware ranges
++    private static final int COLD_MAX_HW = 80;
++    private static final int WARM_MAX_HW = 254;
+ 
+-    // Mode button selected tint (inverted: black bg, white text)
++    // Step sizes in percentage points
++    private static final int FINE   = 1;
++    private static final int COARSE = 10;
++
++    // Mode button tints: selected = black bg / white text, unselected = light grey / black text
+     private static final int TINT_SELECTED   = 0xFF000000;
+-    private static final int TINT_UNSELECTED = 0xFFFFFFFF;
++    private static final int TINT_UNSELECTED = 0xFFE0E0E0;
+     private static final int TEXT_SELECTED   = 0xFFFFFFFF;
+     private static final int TEXT_UNSELECTED = 0xFF000000;
+ 
++    // Hardware mode values for each button (CLEAR=1, A2=3, SPEED=4)
++    private static final int[] MODE_VALUES = {1, 3, 4};
++
+     private final Context mContext;
+     private final WindowManager mWindowManager;
+     private final LayoutInflater mLayoutInflater;
+@@ -72,7 +77,6 @@ public class EinkCenterController implements CoreStartable {
+     private View mOverlayView;
+     private boolean mShowing = false;
+ 
+-    // Mode buttons in mode order (BALANCED=1, CLEAR=2, SMOOTH=3, SPEED=4)
+     private Button[] mModeButtons;
+ 
+     @Inject
+@@ -142,51 +146,47 @@ public class EinkCenterController implements CoreStartable {
+     // -------------------------------------------------------------------------
+ 
+     private void bindControls() {
+-        // Close + force refresh header buttons
+         mOverlayView.findViewById(R.id.eink_close_btn)
+                 .setOnClickListener(v -> hide());
+         mOverlayView.findViewById(R.id.eink_force_refresh_btn)
+                 .setOnClickListener(v -> runOnEink(IEinkManager::forceFullRefresh));
+ 
+-        // Dismiss on outside touch
+         mOverlayView.setOnTouchListener((v, ev) -> {
+             if (ev.getAction() == MotionEvent.ACTION_OUTSIDE) hide();
+             return false;
+         });
+ 
+-        // Cold frontlight
++        // Cold frontlight (steps in % points)
+         mOverlayView.findViewById(R.id.cold_dec_coarse)
+-                .setOnClickListener(v -> adjustCold(-COLD_COARSE));
++                .setOnClickListener(v -> adjustCold(-COARSE));
+         mOverlayView.findViewById(R.id.cold_dec)
+-                .setOnClickListener(v -> adjustCold(-COLD_FINE));
++                .setOnClickListener(v -> adjustCold(-FINE));
+         mOverlayView.findViewById(R.id.cold_inc)
+-                .setOnClickListener(v -> adjustCold(+COLD_FINE));
++                .setOnClickListener(v -> adjustCold(+FINE));
+         mOverlayView.findViewById(R.id.cold_inc_coarse)
+-                .setOnClickListener(v -> adjustCold(+COLD_COARSE));
++                .setOnClickListener(v -> adjustCold(+COARSE));
+ 
+-        // Warm frontlight
++        // Warm frontlight (steps in % points)
+         mOverlayView.findViewById(R.id.warm_dec_coarse)
+-                .setOnClickListener(v -> adjustWarm(-WARM_COARSE));
++                .setOnClickListener(v -> adjustWarm(-COARSE));
+         mOverlayView.findViewById(R.id.warm_dec)
+-                .setOnClickListener(v -> adjustWarm(-WARM_FINE));
++                .setOnClickListener(v -> adjustWarm(-FINE));
+         mOverlayView.findViewById(R.id.warm_inc)
+-                .setOnClickListener(v -> adjustWarm(+WARM_FINE));
++                .setOnClickListener(v -> adjustWarm(+FINE));
+         mOverlayView.findViewById(R.id.warm_inc_coarse)
+-                .setOnClickListener(v -> adjustWarm(+WARM_COARSE));
++                .setOnClickListener(v -> adjustWarm(+COARSE));
+ 
+-        // Refresh mode buttons
++        // Mode buttons: CLEAR(1), A2(3), SPEED(4)
+         mModeButtons = new Button[]{
+-            mOverlayView.findViewById(R.id.mode_balanced),
+             mOverlayView.findViewById(R.id.mode_clear),
+-            mOverlayView.findViewById(R.id.mode_smooth),
++            mOverlayView.findViewById(R.id.mode_a2),
+             mOverlayView.findViewById(R.id.mode_speed),
+         };
+         for (int i = 0; i < mModeButtons.length; i++) {
+-            final int mode = i + 1;
++            final int mode = MODE_VALUES[i];
+             mModeButtons[i].setOnClickListener(v -> setMode(mode));
+         }
+ 
+-        // Preset buttons (built dynamically)
+         buildPresetButtons();
+     }
+ 
+@@ -200,8 +200,8 @@ public class EinkCenterController implements CoreStartable {
+             Button btn = new Button(mContext);
+             btn.setText(name.toUpperCase());
+             btn.setTextSize(12f);
+-            btn.setTextColor(0xFF000000);
+-            btn.getBackground().setTint(0xFFFFFFFF);
++            btn.setTextColor(TEXT_UNSELECTED);
++            btn.getBackground().setTint(TINT_UNSELECTED);
+             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+             lp.setMargins(2, 0, 2, 0);
+@@ -223,8 +223,10 @@ public class EinkCenterController implements CoreStartable {
+             int cold = eink.getFrontlightCold();
+             int warm = eink.getFrontlightWarm();
+             int mode = eink.getRefreshMode();
+-            ((TextView) mOverlayView.findViewById(R.id.cold_value)).setText(String.valueOf(cold));
+-            ((TextView) mOverlayView.findViewById(R.id.warm_value)).setText(String.valueOf(warm));
++            ((TextView) mOverlayView.findViewById(R.id.cold_value))
++                    .setText(coldToPercent(cold) + "%");
++            ((TextView) mOverlayView.findViewById(R.id.warm_value))
++                    .setText(warmToPercent(warm) + "%");
+             updateModeButtons(mode);
+         } catch (RemoteException e) {
+             Log.e(TAG, "refreshValues failed", e);
+@@ -233,7 +235,7 @@ public class EinkCenterController implements CoreStartable {
+ 
+     private void updateModeButtons(int activeMode) {
+         for (int i = 0; i < mModeButtons.length; i++) {
+-            boolean selected = (i + 1) == activeMode;
++            boolean selected = MODE_VALUES[i] == activeMode;
+             mModeButtons[i].getBackground().setTint(selected ? TINT_SELECTED : TINT_UNSELECTED);
+             mModeButtons[i].setTextColor(selected ? TEXT_SELECTED : TEXT_UNSELECTED);
+         }
+@@ -243,27 +245,25 @@ public class EinkCenterController implements CoreStartable {
+     // Actions
+     // -------------------------------------------------------------------------
+ 
+-    private void adjustCold(int delta) {
++    private void adjustCold(int deltaPct) {
+         IEinkManager eink = getEink();
+         if (eink == null) return;
+         try {
+-            int newCold = Math.max(0, Math.min(80, eink.getFrontlightCold() + delta));
+-            eink.setFrontlight(newCold, eink.getFrontlightWarm());
+-            ((TextView) mOverlayView.findViewById(R.id.cold_value))
+-                    .setText(String.valueOf(newCold));
++            int pct = Math.max(0, Math.min(100, coldToPercent(eink.getFrontlightCold()) + deltaPct));
++            eink.setFrontlight(coldFromPercent(pct), eink.getFrontlightWarm());
++            ((TextView) mOverlayView.findViewById(R.id.cold_value)).setText(pct + "%");
+         } catch (RemoteException e) {
+             Log.e(TAG, "adjustCold failed", e);
+         }
+     }
+ 
+-    private void adjustWarm(int delta) {
++    private void adjustWarm(int deltaPct) {
+         IEinkManager eink = getEink();
+         if (eink == null) return;
+         try {
+-            int newWarm = Math.max(0, Math.min(254, eink.getFrontlightWarm() + delta));
+-            eink.setFrontlight(eink.getFrontlightCold(), newWarm);
+-            ((TextView) mOverlayView.findViewById(R.id.warm_value))
+-                    .setText(String.valueOf(newWarm));
++            int pct = Math.max(0, Math.min(100, warmToPercent(eink.getFrontlightWarm()) + deltaPct));
++            eink.setFrontlight(eink.getFrontlightCold(), warmFromPercent(pct));
++            ((TextView) mOverlayView.findViewById(R.id.warm_value)).setText(pct + "%");
+         } catch (RemoteException e) {
+             Log.e(TAG, "adjustWarm failed", e);
+         }
+@@ -286,6 +286,26 @@ public class EinkCenterController implements CoreStartable {
+         }
+     }
+ 
++    // -------------------------------------------------------------------------
++    // Percentage conversion helpers
++    // -------------------------------------------------------------------------
++
++    private static int coldToPercent(int raw) {
++        return Math.round(raw * 100f / COLD_MAX_HW);
++    }
++
++    private static int coldFromPercent(int pct) {
++        return Math.round(pct * COLD_MAX_HW / 100f);
++    }
++
++    private static int warmToPercent(int raw) {
++        return Math.round(raw * 100f / WARM_MAX_HW);
++    }
++
++    private static int warmFromPercent(int pct) {
++        return Math.round(pct * WARM_MAX_HW / 100f);
++    }
++
+     // -------------------------------------------------------------------------
+     // Broadcast
+     // -------------------------------------------------------------------------
 diff --git a/services/core/java/com/android/server/eink/EinkManagerService.java b/services/core/java/com/android/server/eink/EinkManagerService.java
 index 2b2255e1f129..c93731d4ab2f 100644
 --- a/services/core/java/com/android/server/eink/EinkManagerService.java
