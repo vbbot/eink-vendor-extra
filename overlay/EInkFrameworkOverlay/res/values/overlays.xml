@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Cap system brightness slider to the lcd-backlight sysfs node range (max_brightness=80).
+         DisplayDeviceConfig falls back to this integer when the *Float resources are -2,
+         so overriding the integer here is what actually moves mBacklightMaximum to 80/255.
+         Maps the full 0-100% slider to hardware 0-80, matching E-Ink Center exactly. -->
+    <integer name="config_screenBrightnessSettingMaximum">80</integer>
+
+    <!-- First-boot default: ~40% of new max (was 102 = 40% of 255). -->
+    <integer name="config_screenBrightnessSettingDefault">32</integer>
+
     <!-- Disable ripple/tap highlight effects — they cause ghosting on e-ink -->
     <item name="highlight_alpha_material_light" format="float" type="dimen">0.0</item>
     <item name="highlight_alpha_material_dark" format="float" type="dimen">0.0</item>

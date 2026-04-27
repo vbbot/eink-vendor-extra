@@ -1,4 +1,4 @@
-From a968d1712ca69dad2417b0be93f4370a2a23aca9 Mon Sep 17 00:00:00 2001
+From 57b814c1dd762c709edf0d5dd7800c44fa330b15 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
 Subject: [PATCH] eink: fix Settings.System writes using
@@ -6,11 +6,26 @@ Subject: [PATCH] eink: fix Settings.System writes using
 
 Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
- .../res/layout/eink_center_overlay.xml        |  76 ++++++-------
- .../systemui/eink/EinkCenterController.java   | 100 +++++++++++-------
- .../server/eink/EinkManagerService.java       |  39 +++++--
- 3 files changed, 125 insertions(+), 90 deletions(-)
+ core/java/android/eink/IEinkManager.aidl      |   2 +-
+ .../res/layout/eink_center_overlay.xml        |  76 ++++++------
+ .../systemui/eink/EinkCenterController.java   |  95 ++++++++-------
+ .../systemui/eink/EinkPresetManager.java      |  12 +-
+ .../server/eink/EinkManagerService.java       | 109 ++++++++++++++----
+ 5 files changed, 186 insertions(+), 108 deletions(-)
 
+diff --git a/core/java/android/eink/IEinkManager.aidl b/core/java/android/eink/IEinkManager.aidl
+index ab0b958e6122..649792ba84fb 100644
+--- a/core/java/android/eink/IEinkManager.aidl
++++ b/core/java/android/eink/IEinkManager.aidl
+@@ -13,7 +13,7 @@ interface IEinkManager {
+     // Force full clear, then restore active mode
+     void forceFullRefresh();
+ 
+-    // cold: 0-80, warm: 0-254
++    // cold: 0-100 (display %, matches QS brightness slider), warm: 0-254
+     void setFrontlight(int cold, int warm);
+ 
+     // brightness: 0-254
 diff --git a/packages/SystemUI/res/layout/eink_center_overlay.xml b/packages/SystemUI/res/layout/eink_center_overlay.xml
 index 0cfb0143c300..9bd8e332194a 100644
 --- a/packages/SystemUI/res/layout/eink_center_overlay.xml
@@ -234,10 +249,10 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:letterSpacing="0.08"
          android:layout_marginBottom="8dp" />
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
-index 38ad47bc7ef2..c66008b15a57 100644
+index 38ad47bc7ef2..5ce474542278 100644
 --- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
-@@ -50,18 +50,23 @@ public class EinkCenterController implements CoreStartable {
+@@ -50,18 +50,22 @@ public class EinkCenterController implements CoreStartable {
  
      private static final String TAG = "EinkCenterController";
  
@@ -246,8 +261,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
 -    private static final int COLD_COARSE = 20;
 -    private static final int WARM_FINE   = 10;
 -    private static final int WARM_COARSE = 50;
-+    // Hardware ranges
-+    private static final int COLD_MAX_HW = 80;
++    // Warm hardware range (cold is expressed as display % 0-100, warm as hardware 0-254)
 +    private static final int WARM_MAX_HW = 254;
  
 -    // Mode button selected tint (inverted: black bg, white text)
@@ -268,7 +282,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
      private final Context mContext;
      private final WindowManager mWindowManager;
      private final LayoutInflater mLayoutInflater;
-@@ -72,7 +77,6 @@ public class EinkCenterController implements CoreStartable {
+@@ -72,7 +76,6 @@ public class EinkCenterController implements CoreStartable {
      private View mOverlayView;
      private boolean mShowing = false;
  
@@ -276,7 +290,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
      private Button[] mModeButtons;
  
      @Inject
-@@ -142,51 +146,47 @@ public class EinkCenterController implements CoreStartable {
+@@ -142,51 +145,47 @@ public class EinkCenterController implements CoreStartable {
      // -------------------------------------------------------------------------
  
      private void bindControls() {
@@ -341,7 +355,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
          buildPresetButtons();
      }
  
-@@ -200,8 +200,8 @@ public class EinkCenterController implements CoreStartable {
+@@ -200,8 +199,8 @@ public class EinkCenterController implements CoreStartable {
              Button btn = new Button(mContext);
              btn.setText(name.toUpperCase());
              btn.setTextSize(12f);
@@ -352,7 +366,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
              LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                      0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
              lp.setMargins(2, 0, 2, 0);
-@@ -223,8 +223,10 @@ public class EinkCenterController implements CoreStartable {
+@@ -223,8 +222,10 @@ public class EinkCenterController implements CoreStartable {
              int cold = eink.getFrontlightCold();
              int warm = eink.getFrontlightWarm();
              int mode = eink.getRefreshMode();
@@ -365,7 +379,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
              updateModeButtons(mode);
          } catch (RemoteException e) {
              Log.e(TAG, "refreshValues failed", e);
-@@ -233,7 +235,7 @@ public class EinkCenterController implements CoreStartable {
+@@ -233,7 +234,7 @@ public class EinkCenterController implements CoreStartable {
  
      private void updateModeButtons(int activeMode) {
          for (int i = 0; i < mModeButtons.length; i++) {
@@ -374,7 +388,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
              mModeButtons[i].getBackground().setTint(selected ? TINT_SELECTED : TINT_UNSELECTED);
              mModeButtons[i].setTextColor(selected ? TEXT_SELECTED : TEXT_UNSELECTED);
          }
-@@ -243,27 +245,25 @@ public class EinkCenterController implements CoreStartable {
+@@ -243,27 +244,25 @@ public class EinkCenterController implements CoreStartable {
      // Actions
      // -------------------------------------------------------------------------
  
@@ -410,7 +424,7 @@ index 38ad47bc7ef2..c66008b15a57 100644
          } catch (RemoteException e) {
              Log.e(TAG, "adjustWarm failed", e);
          }
-@@ -286,6 +286,26 @@ public class EinkCenterController implements CoreStartable {
+@@ -286,6 +285,22 @@ public class EinkCenterController implements CoreStartable {
          }
      }
  
@@ -418,13 +432,9 @@ index 38ad47bc7ef2..c66008b15a57 100644
 +    // Percentage conversion helpers
 +    // -------------------------------------------------------------------------
 +
-+    private static int coldToPercent(int raw) {
-+        return Math.round(raw * 100f / COLD_MAX_HW);
-+    }
-+
-+    private static int coldFromPercent(int pct) {
-+        return Math.round(pct * COLD_MAX_HW / 100f);
-+    }
++    // cold is already a display percentage (0-100) — no conversion needed.
++    private static int coldToPercent(int raw) { return raw; }
++    private static int coldFromPercent(int pct) { return pct; }
 +
 +    private static int warmToPercent(int raw) {
 +        return Math.round(raw * 100f / WARM_MAX_HW);
@@ -437,19 +447,148 @@ index 38ad47bc7ef2..c66008b15a57 100644
      // -------------------------------------------------------------------------
      // Broadcast
      // -------------------------------------------------------------------------
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
+index 7534297e0681..bd55de6a5a7c 100644
+--- a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
+@@ -23,12 +23,14 @@ public class EinkPresetManager {
+ 
+     static final int MAX_PRESETS = 6;
+ 
++    // cold values are display percentages (0-100). With linear brightness slider,
++    // N% maps to hardware N*0.8 (since max_brightness=80 and slider max_float=80/255).
+     private static final String[][] DEFAULTS = {
+         /* name,   cold, warm, mode */
+-        {"Day",       "70",  "0", "1"},
+-        {"Night",      "0", "120", "3"},
+-        {"Reading",   "35",  "40", "3"},
+-        {"Focus",     "60",   "0", "4"},
++        {"Day",       "80",   "0", "1"},
++        {"Night",     "15", "120", "3"},
++        {"Reading",   "50",  "40", "3"},
++        {"Focus",     "95",   "0", "4"},
+     };
+ 
+     private final ContentResolver mCr;
+@@ -51,7 +53,7 @@ public class EinkPresetManager {
+     }
+ 
+     public int getCold(int slot) {
+-        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][1]) : 40;
++        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][1]) : 80;
+         return Settings.System.getInt(mCr, key(slot, "cold"), def);
+     }
+ 
 diff --git a/services/core/java/com/android/server/eink/EinkManagerService.java b/services/core/java/com/android/server/eink/EinkManagerService.java
-index 2b2255e1f129..c93731d4ab2f 100644
+index 2b2255e1f129..f48335a95998 100644
 --- a/services/core/java/com/android/server/eink/EinkManagerService.java
 +++ b/services/core/java/com/android/server/eink/EinkManagerService.java
-@@ -7,6 +7,7 @@ package com.android.server.eink;
+@@ -7,8 +7,11 @@ package com.android.server.eink;
  
  import android.content.Context;
  import android.eink.IEinkManager;
++import android.hardware.display.DisplayManager;
 +import android.os.Binder;
  import android.provider.Settings;
  import android.util.Log;
++import android.view.Display;
  
-@@ -79,25 +80,40 @@ public class EinkManagerService extends SystemService {
+ import com.android.server.SystemService;
+ 
+@@ -20,19 +23,23 @@ public class EinkManagerService extends SystemService {
+ 
+     private static final String TAG = "EinkManagerService";
+ 
+-    private static final String REFRESH_NODE =
+-            "/sys/devices/platform/soc/11f00000.i2c/i2c-7/7-004b/eink_cpld_registers";
+-    private static final String COLD_NODE   = "/sys/class/leds/lcd-backlight/brightness";
++    // The lcd-backlight sysfs node has max_brightness=80. DPC sends round(float*255) to the
++    // lights HAL, so float 80/255 fills the node exactly. sys.brightness.disable_gamma_conversion
++    // is set at init (eink.rc) so the QS slider is linear — slider N% stores float N/100*COLD_MAX_FLOAT,
++    // and getFrontlightCold() can trivially invert that to get the same percentage back.
++    private static final float COLD_MAX_FLOAT = 80.0f / 255.0f;
++
+     private static final String WARM_NODE   = "/sys/class/leds/led-warmlight/brightness";
+     private static final String KBD_NODE    = "/sys/class/leds/keyboard-backlight/brightness";
++    private static final String REFRESH_NODE =
++            "/sys/devices/platform/soc/11f00000.i2c/i2c-7/7-004b/eink_cpld_registers";
+ 
+-    // Settings.System persistence keys
+     static final String KEY_REFRESH_MODE       = "eink_refresh_mode";
+-    static final String KEY_FRONTLIGHT_COLD    = "eink_frontlight_cold";
+     static final String KEY_FRONTLIGHT_WARM    = "eink_frontlight_warm";
+     static final String KEY_KEYBOARD_BACKLIGHT = "eink_keyboard_backlight";
+ 
+     private final BinderService mBinderService;
++    private DisplayManager mDisplayManager;
+ 
+     public EinkManagerService(Context context) {
+         super(context);
+@@ -42,28 +49,60 @@ public class EinkManagerService extends SystemService {
+     @Override
+     public void onStart() {
+         publishBinderService(Context.EINK_SERVICE, mBinderService);
++        mDisplayManager = getContext().getSystemService(DisplayManager.class);
+     }
+ 
+     @Override
+     public void onBootPhase(int phase) {
++        if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
++            mDisplayManager.registerDisplayListener(mDisplayListener, null);
++        }
+         if (phase == SystemService.PHASE_BOOT_COMPLETED) {
+             restoreState();
+         }
+     }
+ 
+-    // Applies saved Settings.System values to hardware after boot
++    // Cold brightness is owned by DisplayPowerController and restored automatically.
++    // Only warm, keyboard, and refresh mode need explicit restoration.
+     private void restoreState() {
+         android.content.ContentResolver cr = getContext().getContentResolver();
+         writeSysfs(REFRESH_NODE, String.valueOf(
+                 Settings.System.getInt(cr, KEY_REFRESH_MODE, 1)));
+-        writeSysfs(COLD_NODE, String.valueOf(
+-                Settings.System.getInt(cr, KEY_FRONTLIGHT_COLD, 40)));
+         writeSysfs(WARM_NODE, String.valueOf(
+                 Settings.System.getInt(cr, KEY_FRONTLIGHT_WARM, 0)));
+         writeSysfs(KBD_NODE, String.valueOf(
+                 Settings.System.getInt(cr, KEY_KEYBOARD_BACKLIGHT, 128)));
+     }
+ 
++    private final DisplayManager.DisplayListener mDisplayListener =
++            new DisplayManager.DisplayListener() {
++        @Override public void onDisplayAdded(int displayId) {}
++        @Override public void onDisplayRemoved(int displayId) {}
++
++        @Override
++        public void onDisplayChanged(int displayId) {
++            if (displayId != Display.DEFAULT_DISPLAY) return;
++            Display display = mDisplayManager.getDisplay(displayId);
++            if (display == null) return;
++            int state = display.getState();
++            if (state == Display.STATE_OFF) {
++                writeSysfs(WARM_NODE, "0");
++                writeSysfs(KBD_NODE, "0");
++            } else if (state == Display.STATE_ON) {
++                final long token = Binder.clearCallingIdentity();
++                try {
++                    android.content.ContentResolver cr = getContext().getContentResolver();
++                    writeSysfs(WARM_NODE, String.valueOf(
++                            Settings.System.getInt(cr, KEY_FRONTLIGHT_WARM, 0)));
++                    writeSysfs(KBD_NODE, String.valueOf(
++                            Settings.System.getInt(cr, KEY_KEYBOARD_BACKLIGHT, 128)));
++                } finally {
++                    Binder.restoreCallingIdentity(token);
++                }
++            }
++        }
++    };
++
+     private static boolean writeSysfs(String path, String value) {
+         try (FileOutputStream fos = new FileOutputStream(path)) {
+             fos.write(value.getBytes(StandardCharsets.UTF_8));
+@@ -79,26 +118,41 @@ public class EinkManagerService extends SystemService {
          @Override
          public void setRefreshMode(int mode) {
              if (mode < 1 || mode > 4) throw new IllegalArgumentException("mode out of range 1-4");
@@ -481,23 +620,26 @@ index 2b2255e1f129..c93731d4ab2f 100644
  
          @Override
          public void setFrontlight(int cold, int warm) {
-             if (cold < 0 || cold > 80 || warm < 0 || warm > 254)
+-            if (cold < 0 || cold > 80 || warm < 0 || warm > 254)
++            if (cold < 0 || cold > 100 || warm < 0 || warm > 254)
                  throw new IllegalArgumentException("frontlight values out of range");
 -            android.content.ContentResolver cr = getContext().getContentResolver();
 -            Settings.System.putInt(cr, KEY_FRONTLIGHT_COLD, cold);
 -            Settings.System.putInt(cr, KEY_FRONTLIGHT_WARM, warm);
+-            writeSysfs(COLD_NODE, String.valueOf(cold));
 +            final long token = Binder.clearCallingIdentity();
 +            try {
-+                android.content.ContentResolver cr = getContext().getContentResolver();
-+                Settings.System.putInt(cr, KEY_FRONTLIGHT_COLD, cold);
-+                Settings.System.putInt(cr, KEY_FRONTLIGHT_WARM, warm);
++                mDisplayManager.setBrightness(Display.DEFAULT_DISPLAY,
++                        cold / 100.0f * COLD_MAX_FLOAT);
++                Settings.System.putInt(
++                        getContext().getContentResolver(), KEY_FRONTLIGHT_WARM, warm);
 +            } finally {
 +                Binder.restoreCallingIdentity(token);
 +            }
-             writeSysfs(COLD_NODE, String.valueOf(cold));
              writeSysfs(WARM_NODE, String.valueOf(warm));
          }
-@@ -106,8 +122,13 @@ public class EinkManagerService extends SystemService {
+ 
+@@ -106,8 +160,13 @@ public class EinkManagerService extends SystemService {
          public void setKeyboardBacklight(int brightness) {
              if (brightness < 0 || brightness > 254)
                  throw new IllegalArgumentException("brightness out of range 0-254");
@@ -513,6 +655,25 @@ index 2b2255e1f129..c93731d4ab2f 100644
              writeSysfs(KBD_NODE, String.valueOf(brightness));
          }
  
+@@ -119,8 +178,16 @@ public class EinkManagerService extends SystemService {
+ 
+         @Override
+         public int getFrontlightCold() {
+-            return Settings.System.getInt(
+-                    getContext().getContentResolver(), KEY_FRONTLIGHT_COLD, 40);
++            // With sys.brightness.disable_gamma_conversion=true the QS slider is linear,
++            // so getBrightness() / COLD_MAX_FLOAT gives the same percentage the slider shows.
++            final long token = Binder.clearCallingIdentity();
++            try {
++                float f = mDisplayManager.getBrightness(Display.DEFAULT_DISPLAY);
++                if (f <= 0f || Float.isNaN(f)) return 0;
++                return Math.min(100, Math.round(f / COLD_MAX_FLOAT * 100f));
++            } finally {
++                Binder.restoreCallingIdentity(token);
++            }
+         }
+ 
+         @Override
 -- 
 2.43.0
 

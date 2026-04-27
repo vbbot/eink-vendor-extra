@@ -1,4 +1,4 @@
-From f434ac7aa6c75dc02cb847dd98bbf26a9f1cb4fd Mon Sep 17 00:00:00 2001
+From 5dcf83da9d06073f0029c4e6710bba42e200a2b1 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 13:34:52 +0200
 Subject: [PATCH] eink: add E-Ink display settings and button config
@@ -27,7 +27,7 @@ Change-Id: I6debd4f068645334137517ea081d50e970a0626d
 
 diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
 new file mode 100644
-index 00000000000..823e8b53d57
+index 00000000000..c144dacf51a
 --- /dev/null
 +++ b/res/values/eink_strings.xml
 @@ -0,0 +1,69 @@
@@ -37,7 +37,7 @@ index 00000000000..823e8b53d57
 +    <string name="eink_settings_title">E-Ink Display</string>
 +    <string name="eink_refresh_mode_title">Refresh mode</string>
 +    <string name="eink_cold_light_title">Cold frontlight</string>
-+    <string name="eink_cold_light_summary">Blue-toned front illumination (0– 80)</string>
++    <string name="eink_cold_light_summary">Blue-toned front illumination — also controlled by the brightness slider</string>
 +    <string name="eink_warm_light_title">Warm frontlight</string>
 +    <string name="eink_warm_light_summary">Amber-toned front illumination (0–254)</string>
 +    <string name="eink_kbd_backlight_title">Keyboard backlight</string>
