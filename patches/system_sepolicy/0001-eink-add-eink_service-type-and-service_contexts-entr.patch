@@ -1,0 +1,38 @@
+From 4cb5067fc64c388b51f3a0b88946b0dd7d08bb2c Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 17:05:06 +0200
+Subject: [PATCH] eink: add eink_service type and service_contexts entry
+
+Change-Id: Ic5a1944850a066693ec750c950ea904b7cbdeb46
+---
+ private/service_contexts | 1 +
+ public/service.te        | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/private/service_contexts b/private/service_contexts
+index 84304c065..98d1d28d1 100644
+--- a/private/service_contexts
++++ b/private/service_contexts
+@@ -286,6 +286,7 @@ dropbox                                   u:object_r:dropbox_service:s0
+ dumpstate                                 u:object_r:dumpstate_service:s0
+ dynamic_system                            u:object_r:dynamic_system_service:s0
+ econtroller                               u:object_r:radio_service:s0
++eink                                      u:object_r:eink_manager_service:s0
+ ecm_enhanced_confirmation                 u:object_r:ecm_enhanced_confirmation_service:s0
+ emergency_affordance                      u:object_r:emergency_affordance_service:s0
+ euicc_card_controller                     u:object_r:radio_service:s0
+diff --git a/public/service.te b/public/service.te
+index eefcd1b4f..cee304601 100644
+--- a/public/service.te
++++ b/public/service.te
+@@ -130,6 +130,7 @@ type diskstats_service, system_api_service, system_server_service, service_manag
+ type display_service, app_api_service, ephemeral_app_api_service, system_server_service, service_manager_type;
+ type domain_verification_service, app_api_service, system_server_service, service_manager_type;
+ type color_display_service, app_api_service, system_api_service, system_server_service, service_manager_type;
++type eink_manager_service, system_api_service, system_server_service, service_manager_type;
+ type ecm_enhanced_confirmation_service, app_api_service, system_server_service, service_manager_type;
+ type external_vibrator_service, system_server_service, service_manager_type;
+ type file_integrity_service, app_api_service, system_server_service, service_manager_type;
+-- 
+2.43.0
+

@@ -1,0 +1,38 @@
+From cabc1dd30201f51037fc520c40d09af470730142 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 12:22:42 +0200
+Subject: [PATCH 3/4] ThemeOverlayController: disable Monet for e-ink
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Monet falls back to a hardcoded blue-purple seed (~#6750A4) whenever
+the wallpaper has insufficient chroma to extract a hue — including a
+plain white wallpaper. There is no wallpaper that reliably produces a
+neutral palette, so the only correct fix for an e-ink display is to
+disable Monet entirely.
+
+Setting mIsMonetEnabled=false prevents all FabricatedOverlay creation,
+leaving the system_* Material3 colour tokens at their static defaults.
+
+Change-Id: Ide84c2716eb4d14a8e7bce58dbaea8b9555b5898
+---
+ .../src/com/android/systemui/theme/ThemeOverlayController.java  | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/theme/ThemeOverlayController.java b/packages/SystemUI/src/com/android/systemui/theme/ThemeOverlayController.java
+index c3ce071e6ed3..526e80ad40d3 100644
+--- a/packages/SystemUI/src/com/android/systemui/theme/ThemeOverlayController.java
++++ b/packages/SystemUI/src/com/android/systemui/theme/ThemeOverlayController.java
+@@ -453,7 +453,7 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
+             SystemPropertiesHelper systemPropertiesHelper
+     ) {
+         mContext = context;
+-        mIsMonetEnabled = featureFlags.isEnabled(Flags.MONET);
++        mIsMonetEnabled = false;
+         mDeviceProvisionedController = deviceProvisionedController;
+         mBroadcastDispatcher = broadcastDispatcher;
+         mUserManager = userManager;
+-- 
+2.43.0
+

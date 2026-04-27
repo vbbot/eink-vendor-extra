@@ -1,0 +1,62 @@
+From e411977b8ca7f2ec66f4f6a23ec663199fc1c722 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 13:20:53 +0200
+Subject: [PATCH 7/7] eink: register EinkManagerService and add
+ Context.EINK_SERVICE
+
+Start EinkManagerService in the display services block after
+ColorDisplayService. Add Context.EINK_SERVICE = "eink" constant for
+callers that need to look up the service by name.
+
+Change-Id: I39fe930a8e67181e08f521c046e1bb9c5b336c0a
+---
+ core/java/android/content/Context.java             | 9 +++++++++
+ services/java/com/android/server/SystemServer.java | 5 +++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/core/java/android/content/Context.java b/core/java/android/content/Context.java
+index f41e6a1d4725..797bca4760ee 100644
+--- a/core/java/android/content/Context.java
++++ b/core/java/android/content/Context.java
+@@ -6220,6 +6220,15 @@ public abstract class Context {
+      */
+     public static final String COLOR_DISPLAY_SERVICE = "color_display";
+ 
++    /**
++     * Use with {@link #getSystemService(String)} to retrieve an
++     * {@code IEinkManager} for controlling the e-ink display on the MP01.
++     *
++     * @see #getSystemService(String)
++     * @hide
++     */
++    public static final String EINK_SERVICE = "eink";
++
+     /**
+      * Use with {@link #getSystemService(String)} to retrieve a
+      * {@link android.os.UserManager} for managing users on devices that support multiple users.
+diff --git a/services/java/com/android/server/SystemServer.java b/services/java/com/android/server/SystemServer.java
+index a184d6a7efe8..f997203980be 100644
+--- a/services/java/com/android/server/SystemServer.java
++++ b/services/java/com/android/server/SystemServer.java
+@@ -175,6 +175,7 @@ import com.android.server.devicepolicy.DevicePolicyManagerService;
+ import com.android.server.devicestate.DeviceStateManagerService;
+ import com.android.server.display.DisplayManagerService;
+ import com.android.server.display.color.ColorDisplayService;
++import com.android.server.eink.EinkManagerService;
+ import com.android.server.dreams.DreamManagerService;
+ import com.android.server.emergency.EmergencyAffordanceService;
+ import com.android.server.flags.FeatureFlagsService;
+@@ -2546,6 +2547,10 @@ public final class SystemServer implements Dumpable {
+             mSystemServiceManager.startService(ColorDisplayService.class);
+             t.traceEnd();
+ 
++            t.traceBegin("StartEinkManager");
++            mSystemServiceManager.startService(EinkManagerService.class);
++            t.traceEnd();
++
+             // TODO(aml-jobscheduler): Think about how to do it properly.
+             t.traceBegin("StartJobScheduler");
+             mSystemServiceManager.startService(JobSchedulerService.class);
+-- 
+2.43.0
+

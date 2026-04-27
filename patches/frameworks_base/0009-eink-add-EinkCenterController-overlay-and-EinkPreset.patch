@@ -1,0 +1,748 @@
+From 089520fee8bdbeccc9b7191e79d4014469845ab5 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 13:32:09 +0200
+Subject: [PATCH] eink: add EinkCenterController overlay and EinkPresetManager
+
+EinkCenterController is a CoreStartable that owns the E-Ink Center
+overlay window. It listens for ACTION_EINK_GESTURE broadcasts from
+PhoneWindowManager and toggles a bottom-sheet panel with step controls
+for cold/warm frontlight, a 2x2 refresh-mode selector, and up to six
+preset buttons. EinkPresetManager persists named presets to
+Settings.System. EinkModule wires both into Dagger.
+
+Change-Id: I110ff6c07630ec05b9cb2ff38db70f702c1c0eb1
+---
+ .../res/layout/eink_center_overlay.xml        | 234 ++++++++++++
+ .../systemui/dagger/SystemUIModule.java       |   2 +
+ .../systemui/eink/EinkCenterController.java   | 338 ++++++++++++++++++
+ .../com/android/systemui/eink/EinkModule.kt   |  20 ++
+ .../systemui/eink/EinkPresetManager.java      |  84 +++++
+ 5 files changed, 678 insertions(+)
+ create mode 100644 packages/SystemUI/res/layout/eink_center_overlay.xml
+ create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+ create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt
+ create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
+
+diff --git a/packages/SystemUI/res/layout/eink_center_overlay.xml b/packages/SystemUI/res/layout/eink_center_overlay.xml
+new file mode 100644
+index 000000000000..0cfb0143c300
+--- /dev/null
++++ b/packages/SystemUI/res/layout/eink_center_overlay.xml
+@@ -0,0 +1,234 @@
++<?xml version="1.0" encoding="utf-8"?>
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/eink_center_root"
++    android:layout_width="match_parent"
++    android:layout_height="wrap_content"
++    android:orientation="vertical"
++    android:background="#FF000000"
++    android:padding="16dp"
++    android:paddingBottom="32dp">
++
++    <!-- Header -->
++    <RelativeLayout
++        android:layout_width="match_parent"
++        android:layout_height="56dp">
++
++        <TextView
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_centerVertical="true"
++            android:text="E-INK CENTER"
++            android:textColor="#FFFFFFFF"
++            android:textStyle="bold"
++            android:textSize="16sp"
++            android:letterSpacing="0.1" />
++
++        <LinearLayout
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_alignParentEnd="true"
++            android:layout_centerVertical="true"
++            android:orientation="horizontal">
++
++            <Button
++                android:id="@+id/eink_force_refresh_btn"
++                android:layout_width="wrap_content"
++                android:layout_height="40dp"
++                android:text="↺ REFRESH"
++                android:textSize="11sp"
++                android:textColor="#FF000000"
++                android:backgroundTint="#FFFFFFFF"
++                android:minWidth="0dp"
++                android:paddingStart="12dp"
++                android:paddingEnd="12dp" />
++
++            <Space android:layout_width="8dp" android:layout_height="match_parent" />
++
++            <Button
++                android:id="@+id/eink_close_btn"
++                android:layout_width="40dp"
++                android:layout_height="40dp"
++                android:text="✕"
++                android:textSize="14sp"
++                android:textColor="#FF000000"
++                android:backgroundTint="#FFFFFFFF"
++                android:minWidth="0dp"
++                android:padding="0dp" />
++        </LinearLayout>
++    </RelativeLayout>
++
++    <!-- Divider -->
++    <View
++        android:layout_width="match_parent"
++        android:layout_height="1dp"
++        android:background="#55FFFFFF"
++        android:layout_marginBottom="16dp" />
++
++    <!-- Cold frontlight label -->
++    <TextView
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:text="COLD LIGHT"
++        android:textColor="#AAFFFFFF"
++        android:textSize="11sp"
++        android:letterSpacing="0.08"
++        android:layout_marginBottom="8dp" />
++
++    <!-- Cold frontlight step controls -->
++    <LinearLayout
++        android:layout_width="match_parent"
++        android:layout_height="48dp"
++        android:orientation="horizontal"
++        android:gravity="center_vertical"
++        android:layout_marginBottom="16dp">
++
++        <Button android:id="@+id/cold_dec_coarse"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="−−" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/cold_dec"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="−" android:textSize="20sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++        <TextView android:id="@+id/cold_value"
++            android:layout_width="0dp" android:layout_weight="1"
++            android:layout_height="wrap_content"
++            android:textColor="#FFFFFFFF"
++            android:textSize="24sp" android:textStyle="bold"
++            android:gravity="center" />
++        <Button android:id="@+id/cold_inc"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="+" android:textSize="20sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/cold_inc_coarse"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="++" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++    </LinearLayout>
++
++    <!-- Warm frontlight label -->
++    <TextView
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:text="WARM LIGHT"
++        android:textColor="#AAFFFFFF"
++        android:textSize="11sp"
++        android:letterSpacing="0.08"
++        android:layout_marginBottom="8dp" />
++
++    <!-- Warm frontlight step controls -->
++    <LinearLayout
++        android:layout_width="match_parent"
++        android:layout_height="48dp"
++        android:orientation="horizontal"
++        android:gravity="center_vertical"
++        android:layout_marginBottom="16dp">
++
++        <Button android:id="@+id/warm_dec_coarse"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="−−" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/warm_dec"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="−" android:textSize="20sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++        <TextView android:id="@+id/warm_value"
++            android:layout_width="0dp" android:layout_weight="1"
++            android:layout_height="wrap_content"
++            android:textColor="#FFFFFFFF"
++            android:textSize="24sp" android:textStyle="bold"
++            android:gravity="center" />
++        <Button android:id="@+id/warm_inc"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="+" android:textSize="20sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/warm_inc_coarse"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="++" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
++            android:minWidth="0dp" android:padding="0dp" />
++    </LinearLayout>
++
++    <!-- Divider -->
++    <View
++        android:layout_width="match_parent"
++        android:layout_height="1dp"
++        android:background="#55FFFFFF"
++        android:layout_marginBottom="16dp" />
++
++    <!-- Refresh mode label -->
++    <TextView
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:text="REFRESH MODE"
++        android:textColor="#AAFFFFFF"
++        android:textSize="11sp"
++        android:letterSpacing="0.08"
++        android:layout_marginBottom="8dp" />
++
++    <!-- Refresh mode 2x2 grid -->
++    <GridLayout
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:columnCount="2"
++        android:rowCount="2"
++        android:layout_marginBottom="16dp">
++
++        <Button android:id="@+id/mode_balanced"
++            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:layout_height="44dp" android:layout_margin="2dp"
++            android:text="BALANCED" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
++        <Button android:id="@+id/mode_clear"
++            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:layout_height="44dp" android:layout_margin="2dp"
++            android:text="CLEAR" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
++        <Button android:id="@+id/mode_smooth"
++            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:layout_height="44dp" android:layout_margin="2dp"
++            android:text="SMOOTH" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
++        <Button android:id="@+id/mode_speed"
++            android:layout_width="0dp" android:layout_columnWeight="1"
++            android:layout_height="44dp" android:layout_margin="2dp"
++            android:text="SPEED" android:textSize="13sp"
++            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF" />
++    </GridLayout>
++
++    <!-- Divider -->
++    <View
++        android:layout_width="match_parent"
++        android:layout_height="1dp"
++        android:background="#55FFFFFF"
++        android:layout_marginBottom="16dp" />
++
++    <!-- Presets label -->
++    <TextView
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:text="PRESETS"
++        android:textColor="#AAFFFFFF"
++        android:textSize="11sp"
++        android:letterSpacing="0.08"
++        android:layout_marginBottom="8dp" />
++
++    <!-- Preset buttons (populated programmatically) -->
++    <LinearLayout
++        android:id="@+id/eink_presets_row"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal" />
++
++</LinearLayout>
+diff --git a/packages/SystemUI/src/com/android/systemui/dagger/SystemUIModule.java b/packages/SystemUI/src/com/android/systemui/dagger/SystemUIModule.java
+index 48a8119b8430..51e86585651b 100644
+--- a/packages/SystemUI/src/com/android/systemui/dagger/SystemUIModule.java
++++ b/packages/SystemUI/src/com/android/systemui/dagger/SystemUIModule.java
+@@ -73,6 +73,7 @@ import com.android.systemui.dreams.dagger.DreamModule;
+ import com.android.systemui.flags.FeatureFlags;
+ import com.android.systemui.flags.FlagDependenciesModule;
+ import com.android.systemui.flags.FlagsModule;
++import com.android.systemui.eink.EinkModule;
+ import com.android.systemui.growth.dagger.GrowthModule;
+ import com.android.systemui.haptics.msdl.dagger.MSDLModule;
+ import com.android.systemui.inputdevice.InputDeviceModule;
+@@ -249,6 +250,7 @@ import javax.inject.Named;
+         DeviceEntryModule.class,
+         DisableFlagsModule.class,
+         DisplayModule.class,
++        EinkModule.class,
+         RootDozeModule.class,
+         DreamModule.class,
+         EventLogModule.class,
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+new file mode 100644
+index 000000000000..38ad47bc7ef2
+--- /dev/null
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+@@ -0,0 +1,338 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.systemui.eink;
++
++import android.annotation.SuppressLint;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.eink.IEinkManager;
++import android.graphics.PixelFormat;
++import android.os.RemoteException;
++import android.os.ServiceManager;
++import android.os.UserHandle;
++import android.provider.Settings;
++import android.util.Log;
++import android.view.Gravity;
++import android.view.LayoutInflater;
++import android.view.MotionEvent;
++import android.view.View;
++import android.view.WindowManager;
++import android.widget.Button;
++import android.widget.LinearLayout;
++import android.widget.TextView;
++
++import com.android.systemui.CoreStartable;
++import com.android.systemui.res.R;
++import com.android.systemui.broadcast.BroadcastDispatcher;
++import com.android.systemui.dagger.SysUISingleton;
++import com.android.systemui.dagger.qualifiers.Main;
++
++import java.util.concurrent.Executor;
++
++import javax.inject.Inject;
++
++import static android.eink.EinkGestureConstants.ACTION_EINK_GESTURE;
++import static android.eink.EinkGestureConstants.EXTRA_GESTURE;
++import static android.eink.EinkGestureConstants.GESTURE_DOUBLE;
++
++/**
++ * CoreStartable that owns the E-Ink Center overlay window.
++ * The window is pre-inflated at boot and shown/hidden on demand via
++ * a broadcast from EinkGestureDetector in PhoneWindowManager.
++ */
++@SysUISingleton
++public class EinkCenterController implements CoreStartable {
++
++    private static final String TAG = "EinkCenterController";
++
++    // Frontlight step sizes
++    private static final int COLD_FINE   = 5;
++    private static final int COLD_COARSE = 20;
++    private static final int WARM_FINE   = 10;
++    private static final int WARM_COARSE = 50;
++
++    // Mode button selected tint (inverted: black bg, white text)
++    private static final int TINT_SELECTED   = 0xFF000000;
++    private static final int TINT_UNSELECTED = 0xFFFFFFFF;
++    private static final int TEXT_SELECTED   = 0xFFFFFFFF;
++    private static final int TEXT_UNSELECTED = 0xFF000000;
++
++    private final Context mContext;
++    private final WindowManager mWindowManager;
++    private final LayoutInflater mLayoutInflater;
++    private final EinkPresetManager mPresetManager;
++    private final BroadcastDispatcher mBroadcastDispatcher;
++    private final Executor mMainExecutor;
++
++    private View mOverlayView;
++    private boolean mShowing = false;
++
++    // Mode buttons in mode order (BALANCED=1, CLEAR=2, SMOOTH=3, SPEED=4)
++    private Button[] mModeButtons;
++
++    @Inject
++    public EinkCenterController(
++            Context context,
++            WindowManager windowManager,
++            LayoutInflater layoutInflater,
++            EinkPresetManager presetManager,
++            BroadcastDispatcher broadcastDispatcher,
++            @Main Executor mainExecutor) {
++        mContext = context;
++        mWindowManager = windowManager;
++        mLayoutInflater = layoutInflater;
++        mPresetManager = presetManager;
++        mBroadcastDispatcher = broadcastDispatcher;
++        mMainExecutor = mainExecutor;
++    }
++
++    @Override
++    public void start() {
++        inflateOverlay();
++        registerReceiver();
++    }
++
++    // -------------------------------------------------------------------------
++    // Overlay lifecycle
++    // -------------------------------------------------------------------------
++
++    @SuppressLint("InflateParams")
++    private void inflateOverlay() {
++        mOverlayView = mLayoutInflater.inflate(R.layout.eink_center_overlay, null);
++        bindControls();
++    }
++
++    private void show() {
++        if (mShowing) return;
++        refreshValues();
++        mWindowManager.addView(mOverlayView, buildLayoutParams());
++        mShowing = true;
++    }
++
++    private void hide() {
++        if (!mShowing) return;
++        mWindowManager.removeView(mOverlayView);
++        mShowing = false;
++    }
++
++    private void toggle() {
++        if (mShowing) hide(); else show();
++    }
++
++    private WindowManager.LayoutParams buildLayoutParams() {
++        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
++                WindowManager.LayoutParams.MATCH_PARENT,
++                WindowManager.LayoutParams.WRAP_CONTENT,
++                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
++                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
++                        | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
++                PixelFormat.TRANSLUCENT);
++        lp.gravity = Gravity.BOTTOM;
++        lp.setTitle("EinkCenter");
++        return lp;
++    }
++
++    // -------------------------------------------------------------------------
++    // Control binding
++    // -------------------------------------------------------------------------
++
++    private void bindControls() {
++        // Close + force refresh header buttons
++        mOverlayView.findViewById(R.id.eink_close_btn)
++                .setOnClickListener(v -> hide());
++        mOverlayView.findViewById(R.id.eink_force_refresh_btn)
++                .setOnClickListener(v -> runOnEink(IEinkManager::forceFullRefresh));
++
++        // Dismiss on outside touch
++        mOverlayView.setOnTouchListener((v, ev) -> {
++            if (ev.getAction() == MotionEvent.ACTION_OUTSIDE) hide();
++            return false;
++        });
++
++        // Cold frontlight
++        mOverlayView.findViewById(R.id.cold_dec_coarse)
++                .setOnClickListener(v -> adjustCold(-COLD_COARSE));
++        mOverlayView.findViewById(R.id.cold_dec)
++                .setOnClickListener(v -> adjustCold(-COLD_FINE));
++        mOverlayView.findViewById(R.id.cold_inc)
++                .setOnClickListener(v -> adjustCold(+COLD_FINE));
++        mOverlayView.findViewById(R.id.cold_inc_coarse)
++                .setOnClickListener(v -> adjustCold(+COLD_COARSE));
++
++        // Warm frontlight
++        mOverlayView.findViewById(R.id.warm_dec_coarse)
++                .setOnClickListener(v -> adjustWarm(-WARM_COARSE));
++        mOverlayView.findViewById(R.id.warm_dec)
++                .setOnClickListener(v -> adjustWarm(-WARM_FINE));
++        mOverlayView.findViewById(R.id.warm_inc)
++                .setOnClickListener(v -> adjustWarm(+WARM_FINE));
++        mOverlayView.findViewById(R.id.warm_inc_coarse)
++                .setOnClickListener(v -> adjustWarm(+WARM_COARSE));
++
++        // Refresh mode buttons
++        mModeButtons = new Button[]{
++            mOverlayView.findViewById(R.id.mode_balanced),
++            mOverlayView.findViewById(R.id.mode_clear),
++            mOverlayView.findViewById(R.id.mode_smooth),
++            mOverlayView.findViewById(R.id.mode_speed),
++        };
++        for (int i = 0; i < mModeButtons.length; i++) {
++            final int mode = i + 1;
++            mModeButtons[i].setOnClickListener(v -> setMode(mode));
++        }
++
++        // Preset buttons (built dynamically)
++        buildPresetButtons();
++    }
++
++    private void buildPresetButtons() {
++        LinearLayout row = mOverlayView.findViewById(R.id.eink_presets_row);
++        row.removeAllViews();
++        int count = mPresetManager.getCount();
++        for (int i = 0; i < count; i++) {
++            String name = mPresetManager.getName(i);
++            if (name == null) continue;
++            Button btn = new Button(mContext);
++            btn.setText(name.toUpperCase());
++            btn.setTextSize(12f);
++            btn.setTextColor(0xFF000000);
++            btn.getBackground().setTint(0xFFFFFFFF);
++            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
++                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
++            lp.setMargins(2, 0, 2, 0);
++            btn.setLayoutParams(lp);
++            final int slot = i;
++            btn.setOnClickListener(v -> applyPreset(slot));
++            row.addView(btn);
++        }
++    }
++
++    // -------------------------------------------------------------------------
++    // Value refresh
++    // -------------------------------------------------------------------------
++
++    private void refreshValues() {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            int cold = eink.getFrontlightCold();
++            int warm = eink.getFrontlightWarm();
++            int mode = eink.getRefreshMode();
++            ((TextView) mOverlayView.findViewById(R.id.cold_value)).setText(String.valueOf(cold));
++            ((TextView) mOverlayView.findViewById(R.id.warm_value)).setText(String.valueOf(warm));
++            updateModeButtons(mode);
++        } catch (RemoteException e) {
++            Log.e(TAG, "refreshValues failed", e);
++        }
++    }
++
++    private void updateModeButtons(int activeMode) {
++        for (int i = 0; i < mModeButtons.length; i++) {
++            boolean selected = (i + 1) == activeMode;
++            mModeButtons[i].getBackground().setTint(selected ? TINT_SELECTED : TINT_UNSELECTED);
++            mModeButtons[i].setTextColor(selected ? TEXT_SELECTED : TEXT_UNSELECTED);
++        }
++    }
++
++    // -------------------------------------------------------------------------
++    // Actions
++    // -------------------------------------------------------------------------
++
++    private void adjustCold(int delta) {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            int newCold = Math.max(0, Math.min(80, eink.getFrontlightCold() + delta));
++            eink.setFrontlight(newCold, eink.getFrontlightWarm());
++            ((TextView) mOverlayView.findViewById(R.id.cold_value))
++                    .setText(String.valueOf(newCold));
++        } catch (RemoteException e) {
++            Log.e(TAG, "adjustCold failed", e);
++        }
++    }
++
++    private void adjustWarm(int delta) {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            int newWarm = Math.max(0, Math.min(254, eink.getFrontlightWarm() + delta));
++            eink.setFrontlight(eink.getFrontlightCold(), newWarm);
++            ((TextView) mOverlayView.findViewById(R.id.warm_value))
++                    .setText(String.valueOf(newWarm));
++        } catch (RemoteException e) {
++            Log.e(TAG, "adjustWarm failed", e);
++        }
++    }
++
++    private void setMode(int mode) {
++        runOnEink(e -> e.setRefreshMode(mode));
++        updateModeButtons(mode);
++    }
++
++    private void applyPreset(int slot) {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            eink.setFrontlight(mPresetManager.getCold(slot), mPresetManager.getWarm(slot));
++            eink.setRefreshMode(mPresetManager.getMode(slot));
++            refreshValues();
++        } catch (RemoteException e) {
++            Log.e(TAG, "applyPreset failed", e);
++        }
++    }
++
++    // -------------------------------------------------------------------------
++    // Broadcast
++    // -------------------------------------------------------------------------
++
++    private void registerReceiver() {
++        IntentFilter filter = new IntentFilter(ACTION_EINK_GESTURE);
++        mBroadcastDispatcher.registerReceiver(mGestureReceiver, filter, mMainExecutor,
++                UserHandle.ALL);
++    }
++
++    private final BroadcastReceiver mGestureReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            String gesture = intent.getStringExtra(EXTRA_GESTURE);
++            if (gesture == null) return;
++            if ("OPEN_CENTER".equals(gesture) || GESTURE_DOUBLE.equals(gesture)) {
++                toggle();
++            } else if (gesture.startsWith("APPLY_PRESET:")) {
++                try {
++                    int slot = Integer.parseInt(gesture.substring(13));
++                    applyPreset(slot);
++                } catch (NumberFormatException ignored) {}
++            }
++        }
++    };
++
++    // -------------------------------------------------------------------------
++    // Helpers
++    // -------------------------------------------------------------------------
++
++    private IEinkManager getEink() {
++        return IEinkManager.Stub.asInterface(
++                ServiceManager.getService(android.content.Context.EINK_SERVICE));
++    }
++
++    @FunctionalInterface
++    interface EinkAction {
++        void run(IEinkManager eink) throws RemoteException;
++    }
++
++    private void runOnEink(EinkAction action) {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            action.run(eink);
++        } catch (RemoteException e) {
++            Log.e(TAG, "EinkManagerService call failed", e);
++        }
++    }
++}
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt b/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt
+new file mode 100644
+index 000000000000..4cd1558c39a3
+--- /dev/null
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt
+@@ -0,0 +1,20 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.systemui.eink
++
++import com.android.systemui.CoreStartable
++import dagger.Binds
++import dagger.Module
++import dagger.multibindings.ClassKey
++import dagger.multibindings.IntoMap
++
++@Module
++interface EinkModule {
++    @Binds
++    @IntoMap
++    @ClassKey(EinkCenterController::class)
++    fun bindEinkCenterController(impl: EinkCenterController): CoreStartable
++}
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
+new file mode 100644
+index 000000000000..7534297e0681
+--- /dev/null
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
+@@ -0,0 +1,84 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.systemui.eink;
++
++import android.content.ContentResolver;
++import android.content.Context;
++import android.provider.Settings;
++
++import com.android.systemui.dagger.SysUISingleton;
++
++import javax.inject.Inject;
++
++/**
++ * Loads, saves, and applies named e-ink presets. Each preset is a
++ * {name, cold, warm, mode} tuple persisted in Settings.System.
++ * Slots 0-3 are the built-in defaults and are used when no user value exists.
++ */
++@SysUISingleton
++public class EinkPresetManager {
++
++    static final int MAX_PRESETS = 6;
++
++    private static final String[][] DEFAULTS = {
++        /* name,   cold, warm, mode */
++        {"Day",       "70",  "0", "1"},
++        {"Night",      "0", "120", "3"},
++        {"Reading",   "35",  "40", "3"},
++        {"Focus",     "60",   "0", "4"},
++    };
++
++    private final ContentResolver mCr;
++
++    @Inject
++    EinkPresetManager(Context context) {
++        mCr = context.getContentResolver();
++    }
++
++    public int getCount() {
++        return MAX_PRESETS;
++    }
++
++    public String getName(int slot) {
++        if (slot < DEFAULTS.length) {
++            String stored = Settings.System.getString(mCr, key(slot, "name"));
++            return stored != null ? stored : DEFAULTS[slot][0];
++        }
++        return Settings.System.getString(mCr, key(slot, "name"));
++    }
++
++    public int getCold(int slot) {
++        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][1]) : 40;
++        return Settings.System.getInt(mCr, key(slot, "cold"), def);
++    }
++
++    public int getWarm(int slot) {
++        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][2]) : 0;
++        return Settings.System.getInt(mCr, key(slot, "warm"), def);
++    }
++
++    public int getMode(int slot) {
++        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][3]) : 1;
++        return Settings.System.getInt(mCr, key(slot, "mode"), def);
++    }
++
++    public void save(int slot, String name, int cold, int warm, int mode) {
++        Settings.System.putString(mCr, key(slot, "name"), name);
++        Settings.System.putInt(mCr, key(slot, "cold"), cold);
++        Settings.System.putInt(mCr, key(slot, "warm"), warm);
++        Settings.System.putInt(mCr, key(slot, "mode"), mode);
++    }
++
++    /** Returns true if the slot has a user-saved (non-default) name. */
++    public boolean isUserSlot(int slot) {
++        return slot >= DEFAULTS.length
++                || Settings.System.getString(mCr, key(slot, "name")) != null;
++    }
++
++    private static String key(int slot, String field) {
++        return "eink_preset_" + slot + "_" + field;
++    }
++}
+-- 
+2.43.0
+

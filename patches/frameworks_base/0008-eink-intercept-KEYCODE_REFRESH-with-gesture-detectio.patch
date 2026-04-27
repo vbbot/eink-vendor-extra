@@ -1,0 +1,236 @@
+From 31eb2db8ca9faaaa06f971129eda3a2459a0e508 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 13:25:11 +0200
+Subject: [PATCH 8/9] eink: intercept KEYCODE_REFRESH with gesture detection
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add EinkGestureDetector inside PhoneWindowManager to intercept the
+MP01 physical e-ink button (KEYCODE_REFRESH). Resolves single, double,
+and long press — timing windows configurable via Settings.System.
+Direct actions (FORCE_REFRESH, CYCLE_MODE, step controls) are executed
+inline via EinkManagerService; OPEN_CENTER and preset application are
+delegated to SystemUI via a targeted broadcast.
+
+Change-Id: I18250918e5518a7bf923e3999c1dee0d72c6e514
+---
+ .../android/eink/EinkGestureConstants.java    |  19 +++
+ .../server/policy/PhoneWindowManager.java     | 156 ++++++++++++++++++
+ 2 files changed, 175 insertions(+)
+ create mode 100644 core/java/android/eink/EinkGestureConstants.java
+
+diff --git a/core/java/android/eink/EinkGestureConstants.java b/core/java/android/eink/EinkGestureConstants.java
+new file mode 100644
+index 000000000000..a00e5bc3a21a
+--- /dev/null
++++ b/core/java/android/eink/EinkGestureConstants.java
+@@ -0,0 +1,19 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package android.eink;
++
++/** Shared constants for the e-ink button gesture broadcast protocol. @hide */
++public final class EinkGestureConstants {
++    private EinkGestureConstants() {}
++
++    public static final String ACTION_EINK_GESTURE =
++            "com.android.systemui.eink.ACTION_EINK_GESTURE";
++    public static final String EXTRA_GESTURE = "gesture";
++
++    public static final String GESTURE_SINGLE = "SINGLE";
++    public static final String GESTURE_DOUBLE = "DOUBLE";
++    public static final String GESTURE_LONG   = "LONG";
++}
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+index 5aa52e2ae55b..294aee720a01 100644
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -543,6 +543,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+     private Supplier<GlobalActions> mGlobalActionsFactory;
+     private GlobalActions mGlobalActions;
+     private Handler mHandler;
++    private EinkGestureDetector mEinkGestureDetector;
+ 
+     // FIXME This state is shared between the input reader and handler thread.
+     // Technically it's broken and buggy but it has been like this for many years
+@@ -2620,6 +2621,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+         }
+ 
+         mHandler = new PolicyHandler(injector.getLooper());
++        mEinkGestureDetector = new EinkGestureDetector(mContext, mHandler);
+         mScreenshotHelper = new ScreenshotHelper(mContext);
+         mWakeGestureListener = new MyWakeGestureListener(mContext, mHandler);
+         mSettingsObserver = new SettingsObserver(mHandler);
+@@ -3912,6 +3914,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+         final boolean virtualKey = event.getDeviceId() == KeyCharacterMap.VIRTUAL_KEYBOARD;
+ 
+         switch (keyCode) {
++            case KeyEvent.KEYCODE_REFRESH:
++                return mEinkGestureDetector.handleKeyEvent(event);
+             case KeyEvent.KEYCODE_HOME:
+                 return handleHomeShortcuts(focusedToken, event);
+             case KeyEvent.KEYCODE_MENU:
+@@ -7817,4 +7821,156 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+     private void takeScreenshot(int source) {
+         mScreenshotHelper.takeScreenshot(source, mHandler, null);
+     }
++
++    /**
++     * Translates raw KEYCODE_REFRESH events into single/double/long-press actions configured
++     * by the user via Settings.System. The key is always consumed and never forwarded to apps.
++     */
++    private static final class EinkGestureDetector {
++
++        // Settings.System keys for button action configuration
++        private static final String KEY_SINGLE = "eink_button_single_press";
++        private static final String KEY_DOUBLE = "eink_button_double_press";
++        private static final String KEY_LONG   = "eink_button_long_press";
++        private static final String KEY_DOUBLE_WINDOW_MS  = "eink_button_double_press_window_ms";
++        private static final String KEY_LONG_THRESHOLD_MS = "eink_button_long_press_threshold_ms";
++
++        private static final int DEFAULT_DOUBLE_WINDOW_MS  = 350;
++        private static final int DEFAULT_LONG_THRESHOLD_MS = 600;
++
++        private static final String ACTION_EINK_GESTURE = android.eink.EinkGestureConstants.ACTION_EINK_GESTURE;
++        private static final String EXTRA_GESTURE      = android.eink.EinkGestureConstants.EXTRA_GESTURE;
++        private static final String GESTURE_SINGLE     = android.eink.EinkGestureConstants.GESTURE_SINGLE;
++        private static final String GESTURE_DOUBLE     = android.eink.EinkGestureConstants.GESTURE_DOUBLE;
++        private static final String GESTURE_LONG       = android.eink.EinkGestureConstants.GESTURE_LONG;
++
++        private final Context mContext;
++        private final Handler mHandler;
++
++        // State machine
++        private boolean mWaitingForDouble = false;
++        private boolean mLongPressFired = false;
++
++        EinkGestureDetector(Context context, Handler handler) {
++            mContext = context;
++            mHandler = handler;
++        }
++
++        /** Returns true to consume the event; always true for KEYCODE_REFRESH. */
++        boolean handleKeyEvent(KeyEvent event) {
++            final boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
++            final boolean up   = event.getAction() == KeyEvent.ACTION_UP;
++            final boolean longPress =
++                    (event.getFlags() & KeyEvent.FLAG_LONG_PRESS) != 0;
++
++            if (down && event.getRepeatCount() == 0) {
++                mLongPressFired = false;
++                scheduleLongPress();
++            } else if (down && longPress) {
++                cancelLongPress();
++                mLongPressFired = true;
++                dispatchGesture(GESTURE_LONG);
++            } else if (up && !mLongPressFired) {
++                cancelLongPress();
++                if (mWaitingForDouble) {
++                    // Second tap within the window → double press
++                    mWaitingForDouble = false;
++                    mHandler.removeCallbacks(mSinglePressRunnable);
++                    dispatchGesture(GESTURE_DOUBLE);
++                } else {
++                    mWaitingForDouble = true;
++                    int window = Settings.System.getInt(mContext.getContentResolver(),
++                            KEY_DOUBLE_WINDOW_MS, DEFAULT_DOUBLE_WINDOW_MS);
++                    mHandler.postDelayed(mSinglePressRunnable, window);
++                }
++            }
++            return true;
++        }
++
++        private void scheduleLongPress() {
++            int threshold = Settings.System.getInt(mContext.getContentResolver(),
++                    KEY_LONG_THRESHOLD_MS, DEFAULT_LONG_THRESHOLD_MS);
++            mHandler.postDelayed(mLongPressRunnable, threshold);
++        }
++
++        private void cancelLongPress() {
++            mHandler.removeCallbacks(mLongPressRunnable);
++        }
++
++        private final Runnable mLongPressRunnable = () -> {
++            mLongPressFired = true;
++            dispatchGesture(GESTURE_LONG);
++        };
++
++        private final Runnable mSinglePressRunnable = () -> {
++            mWaitingForDouble = false;
++            dispatchGesture(GESTURE_SINGLE);
++        };
++
++        private void dispatchGesture(String gesture) {
++            String action = readAction(gesture);
++            if ("OPEN_CENTER".equals(action)) {
++                Intent i = new Intent(ACTION_EINK_GESTURE);
++                i.putExtra(EXTRA_GESTURE, gesture);
++                i.setPackage("com.android.systemui");
++                mContext.sendBroadcastAsUser(i, android.os.UserHandle.CURRENT);
++            } else {
++                executeAction(action);
++            }
++        }
++
++        private String readAction(String gesture) {
++            String key = switch (gesture) {
++                case GESTURE_DOUBLE -> KEY_DOUBLE;
++                case GESTURE_LONG   -> KEY_LONG;
++                default             -> KEY_SINGLE;
++            };
++            String def = switch (gesture) {
++                case GESTURE_DOUBLE -> "OPEN_CENTER";
++                case GESTURE_LONG   -> "APPLY_PRESET:1";
++                default             -> "FORCE_REFRESH";
++            };
++            return Settings.System.getString(mContext.getContentResolver(), key) != null
++                    ? Settings.System.getString(mContext.getContentResolver(), key)
++                    : def;
++        }
++
++        private void executeAction(String action) {
++            if (action == null || "NOTHING".equals(action)) return;
++            android.eink.IEinkManager eink = android.eink.IEinkManager.Stub.asInterface(
++                    android.os.ServiceManager.getService(android.content.Context.EINK_SERVICE));
++            if (eink == null) return;
++            try {
++                if ("FORCE_REFRESH".equals(action)) {
++                    eink.forceFullRefresh();
++                } else if ("CYCLE_MODE".equals(action)) {
++                    int next = (eink.getRefreshMode() % 4) + 1;
++                    eink.setRefreshMode(next);
++                } else if (action.startsWith("APPLY_PRESET:")) {
++                    // Preset application is delegated to SystemUI via broadcast
++                    Intent i = new Intent(ACTION_EINK_GESTURE);
++                    i.putExtra(EXTRA_GESTURE, action);
++                    i.setPackage("com.android.systemui");
++                    mContext.sendBroadcastAsUser(i, android.os.UserHandle.CURRENT);
++                } else if ("TOGGLE_WARM".equals(action)) {
++                    int warm = eink.getFrontlightWarm();
++                    eink.setFrontlight(eink.getFrontlightCold(), warm > 0 ? 0 : 120);
++                } else if ("COLD_STEP_UP".equals(action)) {
++                    eink.setFrontlight(Math.min(80, eink.getFrontlightCold() + 10),
++                            eink.getFrontlightWarm());
++                } else if ("COLD_STEP_DOWN".equals(action)) {
++                    eink.setFrontlight(Math.max(0, eink.getFrontlightCold() - 10),
++                            eink.getFrontlightWarm());
++                } else if ("WARM_STEP_UP".equals(action)) {
++                    eink.setFrontlight(eink.getFrontlightCold(),
++                            Math.min(254, eink.getFrontlightWarm() + 20));
++                } else if ("WARM_STEP_DOWN".equals(action)) {
++                    eink.setFrontlight(eink.getFrontlightCold(),
++                            Math.max(0, eink.getFrontlightWarm() - 20));
++                }
++            } catch (android.os.RemoteException e) {
++                android.util.Log.e("EinkGestureDetector", "EinkManagerService call failed", e);
++            }
++        }
++    }
+ }
+-- 
+2.43.0
+

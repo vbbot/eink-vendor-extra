@@ -1,0 +1,33 @@
+From 79a69f379ae053bf6ddb16ee0f3046f084172abd Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sun, 26 Apr 2026 21:18:37 +0200
+Subject: [PATCH] wm: always disable cross-window blur for e-ink display
+
+BlurController normally enables blur when hardware supports it.
+Force mBlurEnabled to false unconditionally so SurfaceFlinger never
+attempts alpha-blended blur composition, which produces severe
+ghosting on e-ink panels that cannot render intermediate grey levels.
+
+Change-Id: I7f64936fe8af1fbea38a1de0f1a2c3597bbc2538
+---
+ services/core/java/com/android/server/wm/BlurController.java | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/services/core/java/com/android/server/wm/BlurController.java b/services/core/java/com/android/server/wm/BlurController.java
+index 3ef31acd8365..265c57044def 100644
+--- a/services/core/java/com/android/server/wm/BlurController.java
++++ b/services/core/java/com/android/server/wm/BlurController.java
+@@ -119,8 +119,8 @@ final class BlurController {
+ 
+     private void updateBlurEnabled() {
+         synchronized (mLock) {
+-            final boolean newEnabled = CROSS_WINDOW_BLUR_SUPPORTED && !mBlurDisabledSetting
+-                    && !mInPowerSaveMode && !mTunnelModeEnabled && !mDisabledByThermal;
++            // E-ink: always disable cross-window blur; mid-frame blends cause heavy ghosting.
++            final boolean newEnabled = false;
+             if (mBlurEnabled == newEnabled) {
+                 return;
+             }
+-- 
+2.43.0
+

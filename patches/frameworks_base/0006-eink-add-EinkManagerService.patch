@@ -1,0 +1,162 @@
+From aedbcd5e95d9bbe48d897ece223d79057f83db29 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 13:19:25 +0200
+Subject: [PATCH 6/7] eink: add EinkManagerService
+
+SystemService that implements IEinkManager. Writes refresh mode and
+frontlight values directly to sysfs, persisting each change to
+Settings.System. Restores saved hardware state at PHASE_BOOT_COMPLETED.
+
+Change-Id: Ib968039f3cb93d9cc5308d8f81d04a0852497d33
+---
+ .../server/eink/EinkManagerService.java       | 138 ++++++++++++++++++
+ 1 file changed, 138 insertions(+)
+ create mode 100644 services/core/java/com/android/server/eink/EinkManagerService.java
+
+diff --git a/services/core/java/com/android/server/eink/EinkManagerService.java b/services/core/java/com/android/server/eink/EinkManagerService.java
+new file mode 100644
+index 000000000000..2b2255e1f129
+--- /dev/null
++++ b/services/core/java/com/android/server/eink/EinkManagerService.java
+@@ -0,0 +1,138 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.server.eink;
++
++import android.content.Context;
++import android.eink.IEinkManager;
++import android.provider.Settings;
++import android.util.Log;
++
++import com.android.server.SystemService;
++
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++
++public class EinkManagerService extends SystemService {
++
++    private static final String TAG = "EinkManagerService";
++
++    private static final String REFRESH_NODE =
++            "/sys/devices/platform/soc/11f00000.i2c/i2c-7/7-004b/eink_cpld_registers";
++    private static final String COLD_NODE   = "/sys/class/leds/lcd-backlight/brightness";
++    private static final String WARM_NODE   = "/sys/class/leds/led-warmlight/brightness";
++    private static final String KBD_NODE    = "/sys/class/leds/keyboard-backlight/brightness";
++
++    // Settings.System persistence keys
++    static final String KEY_REFRESH_MODE       = "eink_refresh_mode";
++    static final String KEY_FRONTLIGHT_COLD    = "eink_frontlight_cold";
++    static final String KEY_FRONTLIGHT_WARM    = "eink_frontlight_warm";
++    static final String KEY_KEYBOARD_BACKLIGHT = "eink_keyboard_backlight";
++
++    private final BinderService mBinderService;
++
++    public EinkManagerService(Context context) {
++        super(context);
++        mBinderService = new BinderService();
++    }
++
++    @Override
++    public void onStart() {
++        publishBinderService(Context.EINK_SERVICE, mBinderService);
++    }
++
++    @Override
++    public void onBootPhase(int phase) {
++        if (phase == SystemService.PHASE_BOOT_COMPLETED) {
++            restoreState();
++        }
++    }
++
++    // Applies saved Settings.System values to hardware after boot
++    private void restoreState() {
++        android.content.ContentResolver cr = getContext().getContentResolver();
++        writeSysfs(REFRESH_NODE, String.valueOf(
++                Settings.System.getInt(cr, KEY_REFRESH_MODE, 1)));
++        writeSysfs(COLD_NODE, String.valueOf(
++                Settings.System.getInt(cr, KEY_FRONTLIGHT_COLD, 40)));
++        writeSysfs(WARM_NODE, String.valueOf(
++                Settings.System.getInt(cr, KEY_FRONTLIGHT_WARM, 0)));
++        writeSysfs(KBD_NODE, String.valueOf(
++                Settings.System.getInt(cr, KEY_KEYBOARD_BACKLIGHT, 128)));
++    }
++
++    private static boolean writeSysfs(String path, String value) {
++        try (FileOutputStream fos = new FileOutputStream(path)) {
++            fos.write(value.getBytes(StandardCharsets.UTF_8));
++            return true;
++        } catch (IOException e) {
++            Log.e(TAG, "writeSysfs(" + path + ", " + value + ") failed: " + e.getMessage());
++            return false;
++        }
++    }
++
++    private final class BinderService extends IEinkManager.Stub {
++
++        @Override
++        public void setRefreshMode(int mode) {
++            if (mode < 1 || mode > 4) throw new IllegalArgumentException("mode out of range 1-4");
++            Settings.System.putInt(getContext().getContentResolver(), KEY_REFRESH_MODE, mode);
++            writeSysfs(REFRESH_NODE, String.valueOf(mode));
++        }
++
++        @Override
++        public void forceFullRefresh() {
++            writeSysfs(REFRESH_NODE, "5");
++            int saved = Settings.System.getInt(
++                    getContext().getContentResolver(), KEY_REFRESH_MODE, 1);
++            writeSysfs(REFRESH_NODE, String.valueOf(saved));
++        }
++
++        @Override
++        public void setFrontlight(int cold, int warm) {
++            if (cold < 0 || cold > 80 || warm < 0 || warm > 254)
++                throw new IllegalArgumentException("frontlight values out of range");
++            android.content.ContentResolver cr = getContext().getContentResolver();
++            Settings.System.putInt(cr, KEY_FRONTLIGHT_COLD, cold);
++            Settings.System.putInt(cr, KEY_FRONTLIGHT_WARM, warm);
++            writeSysfs(COLD_NODE, String.valueOf(cold));
++            writeSysfs(WARM_NODE, String.valueOf(warm));
++        }
++
++        @Override
++        public void setKeyboardBacklight(int brightness) {
++            if (brightness < 0 || brightness > 254)
++                throw new IllegalArgumentException("brightness out of range 0-254");
++            Settings.System.putInt(
++                    getContext().getContentResolver(), KEY_KEYBOARD_BACKLIGHT, brightness);
++            writeSysfs(KBD_NODE, String.valueOf(brightness));
++        }
++
++        @Override
++        public int getRefreshMode() {
++            return Settings.System.getInt(
++                    getContext().getContentResolver(), KEY_REFRESH_MODE, 1);
++        }
++
++        @Override
++        public int getFrontlightCold() {
++            return Settings.System.getInt(
++                    getContext().getContentResolver(), KEY_FRONTLIGHT_COLD, 40);
++        }
++
++        @Override
++        public int getFrontlightWarm() {
++            return Settings.System.getInt(
++                    getContext().getContentResolver(), KEY_FRONTLIGHT_WARM, 0);
++        }
++
++        @Override
++        public int getKeyboardBacklight() {
++            return Settings.System.getInt(
++                    getContext().getContentResolver(), KEY_KEYBOARD_BACKLIGHT, 128);
++        }
++    }
++}
+-- 
+2.43.0
+

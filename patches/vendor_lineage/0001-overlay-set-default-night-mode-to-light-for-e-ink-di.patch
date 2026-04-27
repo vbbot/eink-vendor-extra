@@ -1,0 +1,32 @@
+From 990622b5e739127499dd204ec4b7fed023454a33 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sun, 26 Apr 2026 22:37:26 +0200
+Subject: [PATCH] overlay: set default night mode to light for e-ink display
+
+LineageOS sets config_defaultNightMode to MODE_NIGHT_YES (2) system-wide.
+E-ink panels render intermediate grey levels as dither patterns, making
+dark-mode gradients and tinted backgrounds unpredictable. Force the
+compiled-in default to MODE_NIGHT_NO (1) so UiModeManagerService starts
+in light mode on a fresh userdata partition.
+
+Change-Id: I2167a43fcc17ac2cef1d0d4c37cc5d02444fecef
+---
+ overlay/common/frameworks/base/core/res/res/values/config.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/overlay/common/frameworks/base/core/res/res/values/config.xml b/overlay/common/frameworks/base/core/res/res/values/config.xml
+index edde13ca..456481f3 100644
+--- a/overlay/common/frameworks/base/core/res/res/values/config.xml
++++ b/overlay/common/frameworks/base/core/res/res/values/config.xml
+@@ -150,7 +150,7 @@
+              1 - MODE_NIGHT_NO
+              2 - MODE_NIGHT_YES
+     -->
+-    <integer name="config_defaultNightMode">2</integer>
++    <integer name="config_defaultNightMode">1</integer>
+ 
+     <!-- Boolean indicating whether the HWC setColorTransform function can be performed efficiently
+          in hardware. -->
+-- 
+2.43.0
+

@@ -1,0 +1,472 @@
+From 6c6bc27852a94ed9a1a89bd462f0db72f96d41ff Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 13:34:52 +0200
+Subject: [PATCH] eink: add E-Ink display settings and button config
+
+EinkSettingsFragment provides refresh mode, cold/warm frontlight,
+keyboard backlight, and a force-refresh action, all applied live via
+EinkManagerService. EinkButtonConfigFragment lets the user assign one
+of thirteen actions to each of the three button gestures and tune the
+double-press and long-press timing. Wired into Display settings as a
+new E-Ink category.
+
+Change-Id: I6debd4f068645334137517ea081d50e970a0626d
+---
+ res/values/eink_strings.xml                   |  71 +++++++++++
+ res/xml/display_settings.xml                  |  12 ++
+ res/xml/eink_button_settings.xml              |  47 ++++++++
+ res/xml/eink_display_settings.xml             |  56 +++++++++
+ .../eink/EinkButtonConfigFragment.java        | 104 ++++++++++++++++
+ .../display/eink/EinkSettingsFragment.java    | 113 ++++++++++++++++++
+ 6 files changed, 403 insertions(+)
+ create mode 100644 res/values/eink_strings.xml
+ create mode 100644 res/xml/eink_button_settings.xml
+ create mode 100644 res/xml/eink_display_settings.xml
+ create mode 100644 src/com/android/settings/display/eink/EinkButtonConfigFragment.java
+ create mode 100644 src/com/android/settings/display/eink/EinkSettingsFragment.java
+
+diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
+new file mode 100644
+index 00000000000..3f846e0bf71
+--- /dev/null
++++ b/res/values/eink_strings.xml
+@@ -0,0 +1,71 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- E-Ink Settings -->
++    <string name="eink_settings_title">E-Ink Display</string>
++    <string name="eink_refresh_mode_title">Refresh mode</string>
++    <string name="eink_cold_light_title">Cold frontlight</string>
++    <string name="eink_cold_light_summary">Blue-toned front illumination (0– 80)</string>
++    <string name="eink_warm_light_title">Warm frontlight</string>
++    <string name="eink_warm_light_summary">Amber-toned front illumination (0–254)</string>
++    <string name="eink_kbd_backlight_title">Keyboard backlight</string>
++    <string name="eink_kbd_backlight_summary">Physical keyboard backlight brightness (0–254)</string>
++    <string name="eink_force_refresh_title">Clear ghosting</string>
++    <string name="eink_force_refresh_summary">Force a full display clear to remove residual images</string>
++    <string name="eink_button_config_title">E-Ink button</string>
++    <string name="eink_button_config_summary">Configure single, double, and long press actions</string>
++
++    <!-- Button config -->
++    <string name="eink_btn_single_title">Single press</string>
++    <string name="eink_btn_double_title">Double press</string>
++    <string name="eink_btn_long_title">Long press</string>
++    <string name="eink_btn_double_window_title">Double-press window</string>
++    <string name="eink_btn_double_window_summary">Maximum time between two taps to register as a double press (ms)</string>
++    <string name="eink_btn_long_threshold_title">Long-press threshold</string>
++    <string name="eink_btn_long_threshold_summary">How long to hold the button before triggering a long press (ms)</string>
++
++    <!-- Refresh mode entries -->
++    <string-array name="eink_refresh_mode_entries">
++        <item>Balanced</item>
++        <item>Clear (fast)</item>
++        <item>Smooth (slow, best quality)</item>
++        <item>Speed (fastest)</item>
++    </string-array>
++    <string-array name="eink_refresh_mode_values">
++        <item>1</item>
++        <item>2</item>
++        <item>3</item>
++        <item>4</item>
++    </string-array>
++
++    <!-- Button action entries -->
++    <string-array name="eink_button_action_entries">
++        <item>Force full refresh</item>
++        <item>Open E-Ink Center</item>
++        <item>Cycle refresh mode</item>
++        <item>Apply Day preset</item>
++        <item>Apply Night preset</item>
++        <item>Apply Reading preset</item>
++        <item>Apply Focus preset</item>
++        <item>Toggle warm light</item>
++        <item>Cold light step up</item>
++        <item>Cold light step down</item>
++        <item>Warm light step up</item>
++        <item>Warm light step down</item>
++        <item>Do nothing</item>
++    </string-array>
++    <string-array name="eink_button_action_values">
++        <item>FORCE_REFRESH</item>
++        <item>OPEN_CENTER</item>
++        <item>CYCLE_MODE</item>
++        <item>APPLY_PRESET:0</item>
++        <item>APPLY_PRESET:1</item>
++        <item>APPLY_PRESET:2</item>
++        <item>APPLY_PRESET:3</item>
++        <item>TOGGLE_WARM</item>
++        <item>COLD_STEP_UP</item>
++        <item>COLD_STEP_DOWN</item>
++        <item>WARM_STEP_UP</item>
++        <item>WARM_STEP_DOWN</item>
++        <item>NOTHING</item>
++    </string-array>
++</resources>
+diff --git a/res/xml/display_settings.xml b/res/xml/display_settings.xml
+index 11fbc08d1ac..812a0fe7899 100644
+--- a/res/xml/display_settings.xml
++++ b/res/xml/display_settings.xml
+@@ -286,4 +286,16 @@
+             android:title="@string/display_vr_pref_title"
+             android:fragment="com.android.settings.display.VrDisplayPreferencePicker"/>
+     </PreferenceCategory>
++
++    <PreferenceCategory
++        android:key="category_eink"
++        android:title="@string/eink_settings_title">
++
++        <Preference
++            android:key="eink_settings"
++            android:title="@string/eink_settings_title"
++            android:summary="@string/eink_button_config_summary"
++            android:fragment="com.android.settings.display.eink.EinkSettingsFragment" />
++
++    </PreferenceCategory>
+ </PreferenceScreen>
+diff --git a/res/xml/eink_button_settings.xml b/res/xml/eink_button_settings.xml
+new file mode 100644
+index 00000000000..e9c836f0517
+--- /dev/null
++++ b/res/xml/eink_button_settings.xml
+@@ -0,0 +1,47 @@
++<?xml version="1.0" encoding="utf-8"?>
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:settings="http://schemas.android.com/apk/res-auto"
++    android:title="@string/eink_button_config_title">
++
++    <ListPreference
++        android:key="eink_pref_btn_single"
++        android:title="@string/eink_btn_single_title"
++        android:summary="%s"
++        android:entries="@array/eink_button_action_entries"
++        android:entryValues="@array/eink_button_action_values"
++        android:defaultValue="FORCE_REFRESH" />
++
++    <ListPreference
++        android:key="eink_pref_btn_double"
++        android:title="@string/eink_btn_double_title"
++        android:summary="%s"
++        android:entries="@array/eink_button_action_entries"
++        android:entryValues="@array/eink_button_action_values"
++        android:defaultValue="OPEN_CENTER" />
++
++    <ListPreference
++        android:key="eink_pref_btn_long"
++        android:title="@string/eink_btn_long_title"
++        android:summary="%s"
++        android:entries="@array/eink_button_action_entries"
++        android:entryValues="@array/eink_button_action_values"
++        android:defaultValue="APPLY_PRESET:1" />
++
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_pref_btn_double_window"
++        android:title="@string/eink_btn_double_window_title"
++        android:summary="@string/eink_btn_double_window_summary"
++        android:max="600"
++        settings:min="150"
++        android:defaultValue="350" />
++
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_pref_btn_long_threshold"
++        android:title="@string/eink_btn_long_threshold_title"
++        android:summary="@string/eink_btn_long_threshold_summary"
++        android:max="1200"
++        settings:min="300"
++        android:defaultValue="600" />
++
++</PreferenceScreen>
+diff --git a/res/xml/eink_display_settings.xml b/res/xml/eink_display_settings.xml
+new file mode 100644
+index 00000000000..1444673a24c
+--- /dev/null
++++ b/res/xml/eink_display_settings.xml
+@@ -0,0 +1,56 @@
++<?xml version="1.0" encoding="utf-8"?>
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:settings="http://schemas.android.com/apk/res-auto"
++    android:title="@string/eink_settings_title">
++
++    <!-- Refresh mode -->
++    <ListPreference
++        android:key="eink_pref_refresh_mode"
++        android:title="@string/eink_refresh_mode_title"
++        android:summary="%s"
++        android:entries="@array/eink_refresh_mode_entries"
++        android:entryValues="@array/eink_refresh_mode_values"
++        android:defaultValue="1" />
++
++    <!-- Cold frontlight -->
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_pref_cold"
++        android:title="@string/eink_cold_light_title"
++        android:summary="@string/eink_cold_light_summary"
++        android:max="80"
++        settings:min="0"
++        android:defaultValue="40" />
++
++    <!-- Warm frontlight -->
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_pref_warm"
++        android:title="@string/eink_warm_light_title"
++        android:summary="@string/eink_warm_light_summary"
++        android:max="254"
++        settings:min="0"
++        android:defaultValue="0" />
++
++    <!-- Keyboard backlight -->
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_pref_kbd_backlight"
++        android:title="@string/eink_kbd_backlight_title"
++        android:summary="@string/eink_kbd_backlight_summary"
++        android:max="254"
++        settings:min="0"
++        android:defaultValue="128" />
++
++    <!-- Force full refresh -->
++    <Preference
++        android:key="eink_pref_force_refresh"
++        android:title="@string/eink_force_refresh_title"
++        android:summary="@string/eink_force_refresh_summary" />
++
++    <!-- Button configuration -->
++    <Preference
++        android:key="eink_pref_button_config"
++        android:title="@string/eink_button_config_title"
++        android:summary="@string/eink_button_config_summary"
++        android:fragment="com.android.settings.display.eink.EinkButtonConfigFragment" />
++
++</PreferenceScreen>
+diff --git a/src/com/android/settings/display/eink/EinkButtonConfigFragment.java b/src/com/android/settings/display/eink/EinkButtonConfigFragment.java
+new file mode 100644
+index 00000000000..e64333e1fb4
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkButtonConfigFragment.java
+@@ -0,0 +1,104 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.content.ContentResolver;
++import android.os.Bundle;
++import android.provider.Settings;
++
++import androidx.preference.ListPreference;
++import androidx.preference.Preference;
++import com.android.settings.widget.SeekBarPreference;
++
++import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Configures the three physical e-ink button gestures and their timing windows.
++ */
++public class EinkButtonConfigFragment extends SettingsPreferenceFragment
++        implements Preference.OnPreferenceChangeListener {
++
++    private static final String KEY_SINGLE    = "eink_pref_btn_single";
++    private static final String KEY_DOUBLE    = "eink_pref_btn_double";
++    private static final String KEY_LONG      = "eink_pref_btn_long";
++    private static final String KEY_DBL_WIN   = "eink_pref_btn_double_window";
++    private static final String KEY_LONG_THR  = "eink_pref_btn_long_threshold";
++
++    // Settings.System keys (must match EinkGestureDetector)
++    private static final String SYS_SINGLE   = "eink_button_single_press";
++    private static final String SYS_DOUBLE   = "eink_button_double_press";
++    private static final String SYS_LONG     = "eink_button_long_press";
++    private static final String SYS_DBL_WIN  = "eink_button_double_press_window_ms";
++    private static final String SYS_LONG_THR = "eink_button_long_press_threshold_ms";
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        setPreferencesFromResource(R.xml.eink_button_settings, rootKey);
++
++        ContentResolver cr = requireContext().getContentResolver();
++
++        initListPref(findPreference(KEY_SINGLE), cr, SYS_SINGLE, "FORCE_REFRESH");
++        initListPref(findPreference(KEY_DOUBLE), cr, SYS_DOUBLE, "OPEN_CENTER");
++        initListPref(findPreference(KEY_LONG),   cr, SYS_LONG,   "APPLY_PRESET:1");
++
++        initSeekBar(findPreference(KEY_DBL_WIN),  cr, SYS_DBL_WIN,  350);
++        initSeekBar(findPreference(KEY_LONG_THR), cr, SYS_LONG_THR, 600);
++    }
++
++    private void initListPref(ListPreference pref, ContentResolver cr,
++            String sysKey, String defaultValue) {
++        if (pref == null) return;
++        String stored = Settings.System.getString(cr, sysKey);
++        pref.setValue(stored != null ? stored : defaultValue);
++        pref.setSummary(pref.getEntry());
++        pref.setOnPreferenceChangeListener(this);
++    }
++
++    private void initSeekBar(SeekBarPreference pref, ContentResolver cr,
++            String sysKey, int defaultValue) {
++        if (pref == null) return;
++        pref.setProgress(Settings.System.getInt(cr, sysKey, defaultValue));
++        pref.setOnPreferenceChangeListener(this);
++    }
++
++    @Override
++    public boolean onPreferenceChange(Preference preference, Object newValue) {
++        ContentResolver cr = requireContext().getContentResolver();
++        switch (preference.getKey()) {
++            case KEY_SINGLE:
++                Settings.System.putString(cr, SYS_SINGLE, (String) newValue);
++                updateSummary((ListPreference) preference, (String) newValue);
++                break;
++            case KEY_DOUBLE:
++                Settings.System.putString(cr, SYS_DOUBLE, (String) newValue);
++                updateSummary((ListPreference) preference, (String) newValue);
++                break;
++            case KEY_LONG:
++                Settings.System.putString(cr, SYS_LONG, (String) newValue);
++                updateSummary((ListPreference) preference, (String) newValue);
++                break;
++            case KEY_DBL_WIN:
++                Settings.System.putInt(cr, SYS_DBL_WIN, (Integer) newValue);
++                break;
++            case KEY_LONG_THR:
++                Settings.System.putInt(cr, SYS_LONG_THR, (Integer) newValue);
++                break;
++        }
++        return true;
++    }
++
++    private void updateSummary(ListPreference pref, String value) {
++        pref.setValue(value);
++        pref.setSummary(pref.getEntry());
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return MetricsEvent.VIEW_UNKNOWN;
++    }
++}
+diff --git a/src/com/android/settings/display/eink/EinkSettingsFragment.java b/src/com/android/settings/display/eink/EinkSettingsFragment.java
+new file mode 100644
+index 00000000000..3f4a9244eba
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkSettingsFragment.java
+@@ -0,0 +1,113 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.content.Context;
++import android.eink.IEinkManager;
++import android.os.Bundle;
++import android.os.RemoteException;
++import android.os.ServiceManager;
++import android.util.Log;
++
++import androidx.preference.ListPreference;
++import androidx.preference.Preference;
++import com.android.settings.widget.SeekBarPreference;
++
++import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * E-Ink display settings: refresh mode, cold/warm frontlight, keyboard backlight,
++ * and entry points to button config and preset editor.
++ */
++public class EinkSettingsFragment extends SettingsPreferenceFragment
++        implements Preference.OnPreferenceChangeListener {
++
++    private static final String TAG = "EinkSettingsFragment";
++
++    private static final String KEY_REFRESH_MODE    = "eink_pref_refresh_mode";
++    private static final String KEY_COLD            = "eink_pref_cold";
++    private static final String KEY_WARM            = "eink_pref_warm";
++    private static final String KEY_KBD             = "eink_pref_kbd_backlight";
++    private static final String KEY_BUTTON_CONFIG   = "eink_pref_button_config";
++    private static final String KEY_FORCE_REFRESH   = "eink_pref_force_refresh";
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        setPreferencesFromResource(R.xml.eink_display_settings, rootKey);
++
++        ListPreference modePref = findPreference(KEY_REFRESH_MODE);
++        SeekBarPreference coldPref = findPreference(KEY_COLD);
++        SeekBarPreference warmPref = findPreference(KEY_WARM);
++        SeekBarPreference kbdPref  = findPreference(KEY_KBD);
++
++        IEinkManager eink = getEink();
++        if (eink != null) {
++            try {
++                if (modePref != null) modePref.setValue(String.valueOf(eink.getRefreshMode()));
++                if (coldPref != null) coldPref.setProgress(eink.getFrontlightCold());
++                if (warmPref != null) warmPref.setProgress(eink.getFrontlightWarm());
++                if (kbdPref  != null) kbdPref.setProgress(eink.getKeyboardBacklight());
++            } catch (RemoteException e) {
++                Log.e(TAG, "Failed to read eink values", e);
++            }
++        }
++
++        if (modePref != null) modePref.setOnPreferenceChangeListener(this);
++        if (coldPref != null) coldPref.setOnPreferenceChangeListener(this);
++        if (warmPref != null) warmPref.setOnPreferenceChangeListener(this);
++        if (kbdPref  != null) kbdPref.setOnPreferenceChangeListener(this);
++
++        Preference forceRefreshPref = findPreference(KEY_FORCE_REFRESH);
++        if (forceRefreshPref != null) {
++            forceRefreshPref.setOnPreferenceClickListener(p -> {
++                IEinkManager e = getEink();
++                if (e != null) try { e.forceFullRefresh(); } catch (RemoteException ex) { /**/ }
++                return true;
++            });
++        }
++    }
++
++    @Override
++    public boolean onPreferenceChange(Preference preference, Object newValue) {
++        IEinkManager eink = getEink();
++        if (eink == null) return false;
++        try {
++            switch (preference.getKey()) {
++                case KEY_REFRESH_MODE:
++                    eink.setRefreshMode(Integer.parseInt((String) newValue));
++                    break;
++                case KEY_COLD:
++                    eink.setFrontlight((Integer) newValue,
++                            ((SeekBarPreference) findPreference(KEY_WARM)).getProgress());
++                    break;
++                case KEY_WARM:
++                    eink.setFrontlight(
++                            ((SeekBarPreference) findPreference(KEY_COLD)).getProgress(),
++                            (Integer) newValue);
++                    break;
++                case KEY_KBD:
++                    eink.setKeyboardBacklight((Integer) newValue);
++                    break;
++            }
++        } catch (RemoteException e) {
++            Log.e(TAG, "onPreferenceChange failed", e);
++            return false;
++        }
++        return true;
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return MetricsEvent.VIEW_UNKNOWN;
++    }
++
++    private IEinkManager getEink() {
++        return IEinkManager.Stub.asInterface(
++                ServiceManager.getService(android.content.Context.EINK_SERVICE));
++    }
++}
+-- 
+2.43.0
+

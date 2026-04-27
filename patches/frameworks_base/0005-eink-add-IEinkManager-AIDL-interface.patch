@@ -1,0 +1,50 @@
+From 6fbdafcbf72d4ae768fd68dc741b7009339c60f6 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 13:17:41 +0200
+Subject: [PATCH 5/7] eink: add IEinkManager AIDL interface
+
+System-facing binder interface for e-ink hardware control on the MP01:
+refresh mode (1-4), force full clear, cold/warm frontlight, keyboard
+backlight, and getters for reading persisted values.
+
+Change-Id: I65ae83f8f88212c569130259390b9fb2e31b267a
+---
+ core/java/android/eink/IEinkManager.aidl | 26 ++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+ create mode 100644 core/java/android/eink/IEinkManager.aidl
+
+diff --git a/core/java/android/eink/IEinkManager.aidl b/core/java/android/eink/IEinkManager.aidl
+new file mode 100644
+index 000000000000..ab0b958e6122
+--- /dev/null
++++ b/core/java/android/eink/IEinkManager.aidl
+@@ -0,0 +1,26 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package android.eink;
++
++/** @hide */
++interface IEinkManager {
++    // Refresh mode: 1=BALANCED 2=CLEAR 3=SMOOTH 4=SPEED
++    void setRefreshMode(int mode);
++
++    // Force full clear, then restore active mode
++    void forceFullRefresh();
++
++    // cold: 0-80, warm: 0-254
++    void setFrontlight(int cold, int warm);
++
++    // brightness: 0-254
++    void setKeyboardBacklight(int brightness);
++
++    int getRefreshMode();
++    int getFrontlightCold();
++    int getFrontlightWarm();
++    int getKeyboardBacklight();
++}
+-- 
+2.43.0
+

@@ -1,0 +1,90 @@
+From ff92206cf5ee9031889bb1804a3842bb583c265a Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 17:49:39 +0200
+Subject: [PATCH] eink: fix Settings.System writes using
+ Binder.clearCallingIdentity
+
+Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
+---
+ .../server/eink/EinkManagerService.java       | 39 ++++++++++++++-----
+ 1 file changed, 30 insertions(+), 9 deletions(-)
+
+diff --git a/services/core/java/com/android/server/eink/EinkManagerService.java b/services/core/java/com/android/server/eink/EinkManagerService.java
+index 2b2255e1f129..c93731d4ab2f 100644
+--- a/services/core/java/com/android/server/eink/EinkManagerService.java
++++ b/services/core/java/com/android/server/eink/EinkManagerService.java
+@@ -7,6 +7,7 @@ package com.android.server.eink;
+ 
+ import android.content.Context;
+ import android.eink.IEinkManager;
++import android.os.Binder;
+ import android.provider.Settings;
+ import android.util.Log;
+ 
+@@ -79,25 +80,40 @@ public class EinkManagerService extends SystemService {
+         @Override
+         public void setRefreshMode(int mode) {
+             if (mode < 1 || mode > 4) throw new IllegalArgumentException("mode out of range 1-4");
+-            Settings.System.putInt(getContext().getContentResolver(), KEY_REFRESH_MODE, mode);
++            final long token = Binder.clearCallingIdentity();
++            try {
++                Settings.System.putInt(getContext().getContentResolver(), KEY_REFRESH_MODE, mode);
++            } finally {
++                Binder.restoreCallingIdentity(token);
++            }
+             writeSysfs(REFRESH_NODE, String.valueOf(mode));
+         }
+ 
+         @Override
+         public void forceFullRefresh() {
+             writeSysfs(REFRESH_NODE, "5");
+-            int saved = Settings.System.getInt(
+-                    getContext().getContentResolver(), KEY_REFRESH_MODE, 1);
+-            writeSysfs(REFRESH_NODE, String.valueOf(saved));
++            final long token = Binder.clearCallingIdentity();
++            try {
++                int saved = Settings.System.getInt(
++                        getContext().getContentResolver(), KEY_REFRESH_MODE, 1);
++                writeSysfs(REFRESH_NODE, String.valueOf(saved));
++            } finally {
++                Binder.restoreCallingIdentity(token);
++            }
+         }
+ 
+         @Override
+         public void setFrontlight(int cold, int warm) {
+             if (cold < 0 || cold > 80 || warm < 0 || warm > 254)
+                 throw new IllegalArgumentException("frontlight values out of range");
+-            android.content.ContentResolver cr = getContext().getContentResolver();
+-            Settings.System.putInt(cr, KEY_FRONTLIGHT_COLD, cold);
+-            Settings.System.putInt(cr, KEY_FRONTLIGHT_WARM, warm);
++            final long token = Binder.clearCallingIdentity();
++            try {
++                android.content.ContentResolver cr = getContext().getContentResolver();
++                Settings.System.putInt(cr, KEY_FRONTLIGHT_COLD, cold);
++                Settings.System.putInt(cr, KEY_FRONTLIGHT_WARM, warm);
++            } finally {
++                Binder.restoreCallingIdentity(token);
++            }
+             writeSysfs(COLD_NODE, String.valueOf(cold));
+             writeSysfs(WARM_NODE, String.valueOf(warm));
+         }
+@@ -106,8 +122,13 @@ public class EinkManagerService extends SystemService {
+         public void setKeyboardBacklight(int brightness) {
+             if (brightness < 0 || brightness > 254)
+                 throw new IllegalArgumentException("brightness out of range 0-254");
+-            Settings.System.putInt(
+-                    getContext().getContentResolver(), KEY_KEYBOARD_BACKLIGHT, brightness);
++            final long token = Binder.clearCallingIdentity();
++            try {
++                Settings.System.putInt(
++                        getContext().getContentResolver(), KEY_KEYBOARD_BACKLIGHT, brightness);
++            } finally {
++                Binder.restoreCallingIdentity(token);
++            }
+             writeSysfs(KBD_NODE, String.valueOf(brightness));
+         }
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,26 @@
+From 3d9135bfcbea3853ec71a554f2d7b25352c06b0c Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sun, 26 Apr 2026 22:52:58 +0200
+Subject: [PATCH] lineage: include vendor/extra/product/eink_gsi.mk
+
+Pull in the e-ink product makefile so that RRO overlay packages
+declared in vendor/extra are included in all lineage GSI variants.
+---
+ lineage.mk | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lineage.mk b/lineage.mk
+index 31a81e8..4e3d54c 100644
+--- a/lineage.mk
++++ b/lineage.mk
+@@ -3,6 +3,7 @@ $(call inherit-product, vendor/lineage/config/BoardConfigSoong.mk)
+ $(call inherit-product, vendor/lineage/config/BoardConfigLineage.mk)
+ $(call inherit-product, device/lineage/sepolicy/common/sepolicy.mk)
+ -include vendor/lineage/build/core/config.mk
++$(call inherit-product-if-exists, vendor/extra/product/eink_gsi.mk)
+ 
+ # Bootanimation
+ TARGET_BOOT_ANIMATION_RES := 1080
+-- 
+2.43.0
+

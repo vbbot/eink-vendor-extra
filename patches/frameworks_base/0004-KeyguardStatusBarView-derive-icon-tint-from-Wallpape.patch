@@ -1,0 +1,85 @@
+From d55e8bfb9846c1a7e5cd05e1f314d7164506e3f5 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Mon, 27 Apr 2026 12:23:24 +0200
+Subject: [PATCH 4/4] KeyguardStatusBarView: derive icon tint from
+ WallpaperColors hint
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The @ShadeDisplayAware WindowContext is frozen to Theme.SystemUI at
+creation; CentralSurfacesImpl.updateTheme() mutates a different context
+object, so wallpaperTextColor always resolves to #FFFFFFFF regardless
+of the actual wallpaper → intensity=0 → transparent lock screen icons.
+
+Bypass the broken context→theme→attribute chain. Read
+HINT_SUPPORTS_DARK_TEXT directly from WallpaperManager (fast cached
+IPC) and derive intensity from that:
+  light wallpaper (hint set)   → intensity=1, dark icons
+  dark wallpaper  (hint clear) → intensity=0, white icons
+
+Also fixes carrier label and user-switcher text to follow the same rule.
+
+Change-Id: I6e36694c5a50655ba73b983d7446a41a74145a18
+---
+ .../phone/KeyguardStatusBarView.java          | 28 +++++++++++++------
+ 1 file changed, 19 insertions(+), 9 deletions(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java
+index 8e2bc1fc2227..af5052641937 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java
+@@ -20,6 +20,8 @@ import static com.android.systemui.ScreenDecorations.DisplayCutoutView.boundsFro
+ import static com.android.systemui.util.Utils.getStatusBarHeaderHeightKeyguard;
+ 
+ import android.annotation.ColorInt;
++import android.app.WallpaperColors;
++import android.app.WallpaperManager;
+ import android.content.Context;
+ import android.content.res.Configuration;
+ import android.content.res.Resources;
+@@ -476,24 +478,32 @@ public class KeyguardStatusBarView extends RelativeLayout {
+     }
+ 
+     private void updateIconsAndTextColors(TintedIconManager iconManager) {
+-        @ColorInt int textColor = Utils.getColorAttrDefaultColor(mContext,
+-                R.attr.wallpaperTextColor);
+-        float luminance = Color.luminance(textColor);
++        // The @ShadeDisplayAware WindowContext is frozen to Theme.SystemUI at creation and is
++        // never updated by CentralSurfacesImpl.updateTheme() (different context object), so
++        // wallpaperTextColor always resolves to #FFFFFFFF → intensity=0 → invisible icons.
++        // Bypass the theme chain: read HINT_SUPPORTS_DARK_TEXT directly from WallpaperManager
++        // (a fast cached IPC) so tint adapts correctly to whatever wallpaper the user sets.
++        WallpaperColors wc = WallpaperManager.getInstance(mContext)
++                .getWallpaperColors(WallpaperManager.FLAG_LOCK);
++        boolean supportsDarkText = wc != null
++                && (wc.getColorHints() & WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0;
+         @ColorInt int iconColor = Utils.getColorStateListDefaultColor(mContext,
+-                    luminance < 0.5
++                supportsDarkText
+                         ? com.android.settingslib.R.color.dark_mode_icon_color_single_tone
+                         : com.android.settingslib.R.color.light_mode_icon_color_single_tone);
+-        @ColorInt int contrastColor = luminance < 0.5
+-                ? DarkIconDispatcherImpl.DEFAULT_ICON_TINT
+-                : DarkIconDispatcherImpl.DEFAULT_INVERSE_ICON_TINT;
+-        float intensity = textColor == Color.WHITE ? 0 : 1;
++        @ColorInt int contrastColor = supportsDarkText
++                ? DarkIconDispatcherImpl.DEFAULT_INVERSE_ICON_TINT
++                : DarkIconDispatcherImpl.DEFAULT_ICON_TINT;
++        float intensity = supportsDarkText ? 1f : 0f;
+         mCarrierLabel.setTextColor(iconColor);
+ 
+         TextView userSwitcherName = mUserSwitcherContainer.findViewById(R.id.current_user_name);
+         if (userSwitcherName != null) {
+             userSwitcherName.setTextColor(Utils.getColorStateListDefaultColor(
+                     mContext,
+-                    com.android.settingslib.R.color.light_mode_icon_color_single_tone));
++                    supportsDarkText
++                            ? com.android.settingslib.R.color.dark_mode_icon_color_single_tone
++                            : com.android.settingslib.R.color.light_mode_icon_color_single_tone));
+         }
+ 
+         if (iconManager != null) {
+-- 
+2.43.0
+
