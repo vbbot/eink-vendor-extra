@@ -1,4 +1,4 @@
-From 57b814c1dd762c709edf0d5dd7800c44fa330b15 Mon Sep 17 00:00:00 2001
+From 3ac206569bcfde3a079d91d1cd664e8f021d87b5 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
 Subject: [PATCH] eink: fix Settings.System writes using
@@ -7,11 +7,11 @@ Subject: [PATCH] eink: fix Settings.System writes using
 Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
  core/java/android/eink/IEinkManager.aidl      |   2 +-
- .../res/layout/eink_center_overlay.xml        |  76 ++++++------
- .../systemui/eink/EinkCenterController.java   |  95 ++++++++-------
- .../systemui/eink/EinkPresetManager.java      |  12 +-
- .../server/eink/EinkManagerService.java       | 109 ++++++++++++++----
- 5 files changed, 186 insertions(+), 108 deletions(-)
+ .../res/layout/eink_center_overlay.xml        | 137 ++++++++----
+ .../systemui/eink/EinkCenterController.java   | 195 ++++++++++++++----
+ .../systemui/eink/EinkPresetManager.java      |  27 ++-
+ .../server/eink/EinkManagerService.java       | 109 ++++++++--
+ 5 files changed, 357 insertions(+), 113 deletions(-)
 
 diff --git a/core/java/android/eink/IEinkManager.aidl b/core/java/android/eink/IEinkManager.aidl
 index ab0b958e6122..649792ba84fb 100644
@@ -27,7 +27,7 @@ index ab0b958e6122..649792ba84fb 100644
  
      // brightness: 0-254
 diff --git a/packages/SystemUI/res/layout/eink_center_overlay.xml b/packages/SystemUI/res/layout/eink_center_overlay.xml
-index 0cfb0143c300..9bd8e332194a 100644
+index 0cfb0143c300..fce2c461fbf3 100644
 --- a/packages/SystemUI/res/layout/eink_center_overlay.xml
 +++ b/packages/SystemUI/res/layout/eink_center_overlay.xml
 @@ -4,7 +4,7 @@
@@ -48,7 +48,26 @@ index 0cfb0143c300..9bd8e332194a 100644
              android:textStyle="bold"
              android:textSize="16sp"
              android:letterSpacing="0.1" />
-@@ -36,8 +36,8 @@
+@@ -30,14 +30,27 @@
+             android:layout_centerVertical="true"
+             android:orientation="horizontal">
+ 
++            <Button
++                android:id="@+id/lights_toggle_btn"
++                android:layout_width="40dp"
++                android:layout_height="40dp"
++                android:text="☀"
++                android:textSize="18sp"
++                android:textColor="#FFFFFFFF"
++                android:backgroundTint="#FF000000"
++                android:minWidth="0dp"
++                android:padding="0dp" />
++
++            <Space android:layout_width="8dp" android:layout_height="match_parent" />
++
+             <Button
+                 android:id="@+id/eink_force_refresh_btn"
+                 android:layout_width="wrap_content"
                  android:layout_height="40dp"
                  android:text="↺ REFRESH"
                  android:textSize="11sp"
@@ -59,7 +78,7 @@ index 0cfb0143c300..9bd8e332194a 100644
                  android:minWidth="0dp"
                  android:paddingStart="12dp"
                  android:paddingEnd="12dp" />
-@@ -50,8 +50,8 @@
+@@ -50,8 +63,8 @@
                  android:layout_height="40dp"
                  android:text="✕"
                  android:textSize="14sp"
@@ -70,7 +89,7 @@ index 0cfb0143c300..9bd8e332194a 100644
                  android:minWidth="0dp"
                  android:padding="0dp" />
          </LinearLayout>
-@@ -61,7 +61,7 @@
+@@ -61,7 +74,7 @@
      <View
          android:layout_width="match_parent"
          android:layout_height="1dp"
@@ -79,7 +98,7 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:layout_marginBottom="16dp" />
  
      <!-- Cold frontlight label -->
-@@ -69,7 +69,7 @@
+@@ -69,7 +82,7 @@
          android:layout_width="wrap_content"
          android:layout_height="wrap_content"
          android:text="COLD LIGHT"
@@ -88,7 +107,7 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:textSize="11sp"
          android:letterSpacing="0.08"
          android:layout_marginBottom="8dp" />
-@@ -85,30 +85,30 @@
+@@ -85,30 +98,30 @@
          <Button android:id="@+id/cold_dec_coarse"
              android:layout_width="52dp" android:layout_height="44dp"
              android:text="−−" android:textSize="13sp"
@@ -124,7 +143,7 @@ index 0cfb0143c300..9bd8e332194a 100644
              android:minWidth="0dp" android:padding="0dp" />
      </LinearLayout>
  
-@@ -117,7 +117,7 @@
+@@ -117,7 +130,7 @@
          android:layout_width="wrap_content"
          android:layout_height="wrap_content"
          android:text="WARM LIGHT"
@@ -133,7 +152,7 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:textSize="11sp"
          android:letterSpacing="0.08"
          android:layout_marginBottom="8dp" />
-@@ -133,30 +133,30 @@
+@@ -133,30 +146,78 @@
          <Button android:id="@+id/warm_dec_coarse"
              android:layout_width="52dp" android:layout_height="44dp"
              android:text="−−" android:textSize="13sp"
@@ -166,10 +185,58 @@ index 0cfb0143c300..9bd8e332194a 100644
              android:text="++" android:textSize="13sp"
 -            android:textColor="#FF000000" android:backgroundTint="#FFFFFFFF"
 +            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
++            android:minWidth="0dp" android:padding="0dp" />
++    </LinearLayout>
++
++    <!-- Keyboard backlight label -->
++    <TextView
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:text="KEYBOARD"
++        android:textColor="#AA000000"
++        android:textSize="11sp"
++        android:letterSpacing="0.08"
++        android:layout_marginBottom="8dp" />
++
++    <!-- Keyboard backlight step controls -->
++    <LinearLayout
++        android:layout_width="match_parent"
++        android:layout_height="48dp"
++        android:orientation="horizontal"
++        android:gravity="center_vertical"
++        android:layout_marginBottom="16dp">
++
++        <Button android:id="@+id/kbd_dec_coarse"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="−−" android:textSize="13sp"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/kbd_dec"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="−" android:textSize="20sp"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
++            android:minWidth="0dp" android:padding="0dp" />
++        <TextView android:id="@+id/kbd_value"
++            android:layout_width="0dp" android:layout_weight="1"
++            android:layout_height="wrap_content"
++            android:textColor="#FF000000"
++            android:textSize="24sp" android:textStyle="bold"
++            android:gravity="center" />
++        <Button android:id="@+id/kbd_inc"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="+" android:textSize="20sp"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/kbd_inc_coarse"
++            android:layout_width="52dp" android:layout_height="44dp"
++            android:text="++" android:textSize="13sp"
++            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
              android:minWidth="0dp" android:padding="0dp" />
      </LinearLayout>
  
-@@ -164,7 +164,7 @@
+@@ -164,7 +225,7 @@
      <View
          android:layout_width="match_parent"
          android:layout_height="1dp"
@@ -178,7 +245,7 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:layout_marginBottom="16dp" />
  
      <!-- Refresh mode label -->
-@@ -172,46 +172,40 @@
+@@ -172,46 +233,40 @@
          android:layout_width="wrap_content"
          android:layout_height="wrap_content"
          android:text="REFRESH MODE"
@@ -239,7 +306,7 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:layout_marginBottom="16dp" />
  
      <!-- Presets label -->
-@@ -219,7 +213,7 @@
+@@ -219,7 +274,7 @@
          android:layout_width="wrap_content"
          android:layout_height="wrap_content"
          android:text="PRESETS"
@@ -249,10 +316,18 @@ index 0cfb0143c300..9bd8e332194a 100644
          android:letterSpacing="0.08"
          android:layout_marginBottom="8dp" />
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
-index 38ad47bc7ef2..5ce474542278 100644
+index 38ad47bc7ef2..c9b32317f462 100644
 --- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
-@@ -50,18 +50,22 @@ public class EinkCenterController implements CoreStartable {
+@@ -7,6 +7,7 @@ package com.android.systemui.eink;
+ 
+ import android.annotation.SuppressLint;
+ import android.content.BroadcastReceiver;
++import android.content.ContentResolver;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.IntentFilter;
+@@ -50,18 +51,29 @@ public class EinkCenterController implements CoreStartable {
  
      private static final String TAG = "EinkCenterController";
  
@@ -261,10 +336,17 @@ index 38ad47bc7ef2..5ce474542278 100644
 -    private static final int COLD_COARSE = 20;
 -    private static final int WARM_FINE   = 10;
 -    private static final int WARM_COARSE = 50;
-+    // Warm hardware range (cold is expressed as display % 0-100, warm as hardware 0-254)
++    // Warm and keyboard hardware ranges (cold is display % 0-100; warm/kbd are 0-254)
 +    private static final int WARM_MAX_HW = 254;
++    private static final int KBD_MAX_HW  = 254;
  
 -    // Mode button selected tint (inverted: black bg, white text)
++    // Settings keys used to remember light values when the master "all off" toggle is engaged.
++    static final String KEY_LIGHTS_OFF         = "eink_lights_off";
++    static final String KEY_LIGHTS_SAVED_COLD  = "eink_lights_saved_cold";
++    static final String KEY_LIGHTS_SAVED_WARM  = "eink_lights_saved_warm";
++    static final String KEY_LIGHTS_SAVED_KBD   = "eink_lights_saved_kbd";
++
 +    // Step sizes in percentage points
 +    private static final int FINE   = 1;
 +    private static final int COARSE = 10;
@@ -282,15 +364,17 @@ index 38ad47bc7ef2..5ce474542278 100644
      private final Context mContext;
      private final WindowManager mWindowManager;
      private final LayoutInflater mLayoutInflater;
-@@ -72,7 +76,6 @@ public class EinkCenterController implements CoreStartable {
+@@ -72,8 +84,8 @@ public class EinkCenterController implements CoreStartable {
      private View mOverlayView;
      private boolean mShowing = false;
  
 -    // Mode buttons in mode order (BALANCED=1, CLEAR=2, SMOOTH=3, SPEED=4)
      private Button[] mModeButtons;
++    private Button mLightsToggle;
  
      @Inject
-@@ -142,51 +145,47 @@ public class EinkCenterController implements CoreStartable {
+     public EinkCenterController(
+@@ -142,51 +154,60 @@ public class EinkCenterController implements CoreStartable {
      // -------------------------------------------------------------------------
  
      private void bindControls() {
@@ -301,6 +385,9 @@ index 38ad47bc7ef2..5ce474542278 100644
                  .setOnClickListener(v -> runOnEink(IEinkManager::forceFullRefresh));
  
 -        // Dismiss on outside touch
++        mLightsToggle = mOverlayView.findViewById(R.id.lights_toggle_btn);
++        mLightsToggle.setOnClickListener(v -> toggleLights());
++
          mOverlayView.setOnTouchListener((v, ev) -> {
              if (ev.getAction() == MotionEvent.ACTION_OUTSIDE) hide();
              return false;
@@ -334,9 +421,20 @@ index 38ad47bc7ef2..5ce474542278 100644
 +                .setOnClickListener(v -> adjustWarm(+FINE));
          mOverlayView.findViewById(R.id.warm_inc_coarse)
 -                .setOnClickListener(v -> adjustWarm(+WARM_COARSE));
-+                .setOnClickListener(v -> adjustWarm(+COARSE));
- 
+-
 -        // Refresh mode buttons
++                .setOnClickListener(v -> adjustWarm(+COARSE));
++
++        // Keyboard backlight (steps in % points)
++        mOverlayView.findViewById(R.id.kbd_dec_coarse)
++                .setOnClickListener(v -> adjustKbd(-COARSE));
++        mOverlayView.findViewById(R.id.kbd_dec)
++                .setOnClickListener(v -> adjustKbd(-FINE));
++        mOverlayView.findViewById(R.id.kbd_inc)
++                .setOnClickListener(v -> adjustKbd(+FINE));
++        mOverlayView.findViewById(R.id.kbd_inc_coarse)
++                .setOnClickListener(v -> adjustKbd(+COARSE));
++
 +        // Mode buttons: CLEAR(1), A2(3), SPEED(4)
          mModeButtons = new Button[]{
 -            mOverlayView.findViewById(R.id.mode_balanced),
@@ -355,7 +453,7 @@ index 38ad47bc7ef2..5ce474542278 100644
          buildPresetButtons();
      }
  
-@@ -200,8 +199,8 @@ public class EinkCenterController implements CoreStartable {
+@@ -200,8 +221,8 @@ public class EinkCenterController implements CoreStartable {
              Button btn = new Button(mContext);
              btn.setText(name.toUpperCase());
              btn.setTextSize(12f);
@@ -366,9 +464,11 @@ index 38ad47bc7ef2..5ce474542278 100644
              LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                      0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
              lp.setMargins(2, 0, 2, 0);
-@@ -223,8 +222,10 @@ public class EinkCenterController implements CoreStartable {
+@@ -222,18 +243,31 @@ public class EinkCenterController implements CoreStartable {
+         try {
              int cold = eink.getFrontlightCold();
              int warm = eink.getFrontlightWarm();
++            int kbd  = eink.getKeyboardBacklight();
              int mode = eink.getRefreshMode();
 -            ((TextView) mOverlayView.findViewById(R.id.cold_value)).setText(String.valueOf(cold));
 -            ((TextView) mOverlayView.findViewById(R.id.warm_value)).setText(String.valueOf(warm));
@@ -376,11 +476,22 @@ index 38ad47bc7ef2..5ce474542278 100644
 +                    .setText(coldToPercent(cold) + "%");
 +            ((TextView) mOverlayView.findViewById(R.id.warm_value))
 +                    .setText(warmToPercent(warm) + "%");
++            ((TextView) mOverlayView.findViewById(R.id.kbd_value))
++                    .setText(kbdToPercent(kbd) + "%");
              updateModeButtons(mode);
++            updateLightsToggle();
          } catch (RemoteException e) {
              Log.e(TAG, "refreshValues failed", e);
-@@ -233,7 +234,7 @@ public class EinkCenterController implements CoreStartable {
+         }
+     }
  
++    private void updateLightsToggle() {
++        boolean off = Settings.System.getInt(
++                mContext.getContentResolver(), KEY_LIGHTS_OFF, 0) == 1;
++        mLightsToggle.getBackground().setTint(off ? TINT_UNSELECTED : TINT_SELECTED);
++        mLightsToggle.setTextColor(off ? TEXT_UNSELECTED : TEXT_SELECTED);
++    }
++
      private void updateModeButtons(int activeMode) {
          for (int i = 0; i < mModeButtons.length; i++) {
 -            boolean selected = (i + 1) == activeMode;
@@ -388,7 +499,7 @@ index 38ad47bc7ef2..5ce474542278 100644
              mModeButtons[i].getBackground().setTint(selected ? TINT_SELECTED : TINT_UNSELECTED);
              mModeButtons[i].setTextColor(selected ? TEXT_SELECTED : TEXT_UNSELECTED);
          }
-@@ -243,27 +244,25 @@ public class EinkCenterController implements CoreStartable {
+@@ -243,32 +277,46 @@ public class EinkCenterController implements CoreStartable {
      // Actions
      // -------------------------------------------------------------------------
  
@@ -404,6 +515,7 @@ index 38ad47bc7ef2..5ce474542278 100644
 +            int pct = Math.max(0, Math.min(100, coldToPercent(eink.getFrontlightCold()) + deltaPct));
 +            eink.setFrontlight(coldFromPercent(pct), eink.getFrontlightWarm());
 +            ((TextView) mOverlayView.findViewById(R.id.cold_value)).setText(pct + "%");
++            clearLightsOffFlag();
          } catch (RemoteException e) {
              Log.e(TAG, "adjustCold failed", e);
          }
@@ -421,13 +533,81 @@ index 38ad47bc7ef2..5ce474542278 100644
 +            int pct = Math.max(0, Math.min(100, warmToPercent(eink.getFrontlightWarm()) + deltaPct));
 +            eink.setFrontlight(eink.getFrontlightCold(), warmFromPercent(pct));
 +            ((TextView) mOverlayView.findViewById(R.id.warm_value)).setText(pct + "%");
++            clearLightsOffFlag();
          } catch (RemoteException e) {
              Log.e(TAG, "adjustWarm failed", e);
          }
-@@ -286,6 +285,22 @@ public class EinkCenterController implements CoreStartable {
+     }
+ 
++    private void adjustKbd(int deltaPct) {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            int pct = Math.max(0, Math.min(100,
++                    kbdToPercent(eink.getKeyboardBacklight()) + deltaPct));
++            eink.setKeyboardBacklight(kbdFromPercent(pct));
++            ((TextView) mOverlayView.findViewById(R.id.kbd_value)).setText(pct + "%");
++            clearLightsOffFlag();
++        } catch (RemoteException e) {
++            Log.e(TAG, "adjustKbd failed", e);
++        }
++    }
++
+     private void setMode(int mode) {
+         runOnEink(e -> e.setRefreshMode(mode));
+         updateModeButtons(mode);
+@@ -279,13 +327,78 @@ public class EinkCenterController implements CoreStartable {
+         if (eink == null) return;
+         try {
+             eink.setFrontlight(mPresetManager.getCold(slot), mPresetManager.getWarm(slot));
++            eink.setKeyboardBacklight(mPresetManager.getKbd(slot));
+             eink.setRefreshMode(mPresetManager.getMode(slot));
++            clearLightsOffFlag();
+             refreshValues();
+         } catch (RemoteException e) {
+             Log.e(TAG, "applyPreset failed", e);
          }
      }
  
++    /**
++     * Master lights toggle: off snapshots current cold/warm/kbd to Settings.System
++     * and zeros all three; on restores them.
++     */
++    private void toggleLights() {
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        ContentResolver cr = mContext.getContentResolver();
++        boolean currentlyOff = Settings.System.getInt(cr, KEY_LIGHTS_OFF, 0) == 1;
++        try {
++            if (currentlyOff) {
++                int cold = Settings.System.getInt(cr, KEY_LIGHTS_SAVED_COLD, 50);
++                int warm = Settings.System.getInt(cr, KEY_LIGHTS_SAVED_WARM, 0);
++                int kbd  = Settings.System.getInt(cr, KEY_LIGHTS_SAVED_KBD, 0);
++                eink.setFrontlight(cold, warm);
++                eink.setKeyboardBacklight(kbd);
++                Settings.System.putInt(cr, KEY_LIGHTS_OFF, 0);
++            } else {
++                Settings.System.putInt(cr, KEY_LIGHTS_SAVED_COLD, eink.getFrontlightCold());
++                Settings.System.putInt(cr, KEY_LIGHTS_SAVED_WARM, eink.getFrontlightWarm());
++                Settings.System.putInt(cr, KEY_LIGHTS_SAVED_KBD,  eink.getKeyboardBacklight());
++                Settings.System.putInt(cr, KEY_LIGHTS_OFF, 1);
++                eink.setFrontlight(0, 0);
++                eink.setKeyboardBacklight(0);
++            }
++            refreshValues();
++        } catch (RemoteException e) {
++            Log.e(TAG, "toggleLights failed", e);
++        }
++    }
++
++    private void clearLightsOffFlag() {
++        ContentResolver cr = mContext.getContentResolver();
++        if (Settings.System.getInt(cr, KEY_LIGHTS_OFF, 0) == 1) {
++            Settings.System.putInt(cr, KEY_LIGHTS_OFF, 0);
++            updateLightsToggle();
++        }
++    }
++
 +    // -------------------------------------------------------------------------
 +    // Percentage conversion helpers
 +    // -------------------------------------------------------------------------
@@ -444,39 +624,82 @@ index 38ad47bc7ef2..5ce474542278 100644
 +        return Math.round(pct * WARM_MAX_HW / 100f);
 +    }
 +
++    private static int kbdToPercent(int raw) {
++        return Math.round(raw * 100f / KBD_MAX_HW);
++    }
++
++    private static int kbdFromPercent(int pct) {
++        return Math.round(pct * KBD_MAX_HW / 100f);
++    }
++
      // -------------------------------------------------------------------------
      // Broadcast
      // -------------------------------------------------------------------------
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
-index 7534297e0681..bd55de6a5a7c 100644
+index 7534297e0681..523ce2e83e7f 100644
 --- a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
-@@ -23,12 +23,14 @@ public class EinkPresetManager {
+@@ -15,7 +15,7 @@ import javax.inject.Inject;
+ 
+ /**
+  * Loads, saves, and applies named e-ink presets. Each preset is a
+- * {name, cold, warm, mode} tuple persisted in Settings.System.
++ * {name, cold, warm, kbd, mode} tuple persisted in Settings.System.
+  * Slots 0-3 are the built-in defaults and are used when no user value exists.
+  */
+ @SysUISingleton
+@@ -23,12 +23,15 @@ public class EinkPresetManager {
  
      static final int MAX_PRESETS = 6;
  
 +    // cold values are display percentages (0-100). With linear brightness slider,
 +    // N% maps to hardware N*0.8 (since max_brightness=80 and slider max_float=80/255).
++    // warm and kbd values are 0-254 hardware units.
      private static final String[][] DEFAULTS = {
-         /* name,   cold, warm, mode */
+-        /* name,   cold, warm, mode */
 -        {"Day",       "70",  "0", "1"},
 -        {"Night",      "0", "120", "3"},
 -        {"Reading",   "35",  "40", "3"},
 -        {"Focus",     "60",   "0", "4"},
-+        {"Day",       "80",   "0", "1"},
-+        {"Night",     "15", "120", "3"},
-+        {"Reading",   "50",  "40", "3"},
-+        {"Focus",     "95",   "0", "4"},
++        /* name,    cold,  warm,  kbd, mode */
++        {"Day",       "80",   "0",   "0", "1"},
++        {"Night",     "15", "120", "200", "3"},
++        {"Reading",   "50",  "40",   "0", "3"},
++        {"Focus",     "95",   "0", "100", "4"},
      };
  
      private final ContentResolver mCr;
-@@ -51,7 +53,7 @@ public class EinkPresetManager {
+@@ -51,7 +54,7 @@ public class EinkPresetManager {
      }
  
      public int getCold(int slot) {
 -        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][1]) : 40;
 +        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][1]) : 80;
          return Settings.System.getInt(mCr, key(slot, "cold"), def);
+     }
+ 
+@@ -60,15 +63,21 @@ public class EinkPresetManager {
+         return Settings.System.getInt(mCr, key(slot, "warm"), def);
+     }
+ 
++    public int getKbd(int slot) {
++        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][3]) : 0;
++        return Settings.System.getInt(mCr, key(slot, "kbd"), def);
++    }
++
+     public int getMode(int slot) {
+-        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][3]) : 1;
++        int def = slot < DEFAULTS.length ? Integer.parseInt(DEFAULTS[slot][4]) : 1;
+         return Settings.System.getInt(mCr, key(slot, "mode"), def);
+     }
+ 
+-    public void save(int slot, String name, int cold, int warm, int mode) {
++    public void save(int slot, String name, int cold, int warm, int kbd, int mode) {
+         Settings.System.putString(mCr, key(slot, "name"), name);
+         Settings.System.putInt(mCr, key(slot, "cold"), cold);
+         Settings.System.putInt(mCr, key(slot, "warm"), warm);
++        Settings.System.putInt(mCr, key(slot, "kbd"), kbd);
+         Settings.System.putInt(mCr, key(slot, "mode"), mode);
      }
  
 diff --git a/services/core/java/com/android/server/eink/EinkManagerService.java b/services/core/java/com/android/server/eink/EinkManagerService.java
