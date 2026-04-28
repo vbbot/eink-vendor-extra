@@ -1,0 +1,52 @@
+From 7ea067af2fb1191b30cdfd7d62c24988c81c31cb Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Tue, 28 Apr 2026 13:32:32 +0200
+Subject: [PATCH] display: use device brightness range for HBM controller, not
+ PowerManager.BRIGHTNESS_MAX
+
+When HighBrightnessModeController is constructed with the global
+PowerManager.BRIGHTNESS_MIN/MAX (0.0/1.0), BrightnessRangeController
+reports the HBM max as 1.0 even though DisplayDeviceConfig caps
+mBacklightMaximum lower (e.g. 80/255 on the e-ink Minimal Phone).
+
+The QS brightness slider then maps its full 0-100% physical range to
+float 0-1.0. Any slider position above the device's real max produces
+the same clamped hardware brightness, making it look like brightness
+'caps' partway across the slider.
+
+Pass the device's actual min/max from DisplayDeviceConfig so the slider
+range matches what the hardware can actually do.
+
+Change-Id: I35d450d4d67fc05f9701664c291cbeae6fc55f0d
+---
+ .../server/display/DisplayPowerController.java      | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/services/core/java/com/android/server/display/DisplayPowerController.java b/services/core/java/com/android/server/display/DisplayPowerController.java
+index bc99da745f11..e913ddbf50d0 100644
+--- a/services/core/java/com/android/server/display/DisplayPowerController.java
++++ b/services/core/java/com/android/server/display/DisplayPowerController.java
+@@ -2114,9 +2114,18 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
+         final HighBrightnessModeData hbmData =
+                 ddConfig != null ? ddConfig.getHighBrightnessModeData() : null;
+         final DisplayDeviceInfo info = mDisplayDevice.getDisplayDeviceInfoLocked();
++        // Use the device's actual brightness range (from DisplayDeviceConfig) instead of the
++        // global PowerManager.BRIGHTNESS_MIN/MAX. Otherwise BrightnessRangeController reports
++        // the HBM max as 1.0, the QS slider thinks its range is 0-1.0, and any slider position
++        // above the device's real max produces the same hardware brightness — looking like the
++        // brightness "caps" partway across the slider.
++        final float deviceMin = ddConfig != null
++                ? ddConfig.getBrightnessMinimum() : PowerManager.BRIGHTNESS_MIN;
++        final float deviceMax = ddConfig != null
++                ? ddConfig.getBrightnessMaximum() : PowerManager.BRIGHTNESS_MAX;
+         return mInjector.getHighBrightnessModeController(mHandler, info.width, info.height,
+-                displayToken, displayUniqueId, PowerManager.BRIGHTNESS_MIN,
+-                PowerManager.BRIGHTNESS_MAX, hbmData,
++                displayToken, displayUniqueId, deviceMin,
++                deviceMax, hbmData,
+                 (sdrBrightness, maxDesiredHdrSdrRatio, ratioScaleFactor) ->
+                         mDisplayDeviceConfig.getHdrBrightnessFromSdr(sdrBrightness,
+                                 maxDesiredHdrSdrRatio, ratioScaleFactor), modeChangeCallback,
+-- 
+2.43.0
+
