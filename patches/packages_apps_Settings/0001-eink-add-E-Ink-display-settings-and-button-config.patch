@@ -1,4 +1,4 @@
-From 2bc66a0180ca39ae05c922c1698cba54ea5a48ff Mon Sep 17 00:00:00 2001
+From cc7c9a93d14cf7bec66a304e22b1f70c8b361bf8 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 13:34:52 +0200
 Subject: [PATCH] eink: add E-Ink display settings and button config
@@ -12,18 +12,21 @@ new E-Ink category.
 
 Change-Id: I6debd4f068645334137517ea081d50e970a0626d
 ---
- res/values/eink_strings.xml                   |  88 ++++++++++++
+ res/layout/eink_stepper_preference.xml        |  51 ++++++++
+ res/values/eink_strings.xml                   |  87 +++++++++++++
  res/xml/display_settings.xml                  |  12 ++
  res/xml/eink_button_settings.xml              |  47 +++++++
- res/xml/eink_display_settings.xml             |  63 +++++++++
- res/xml/eink_preset_edit.xml                  |  41 ++++++
- res/xml/eink_presets_list.xml                 |  22 +++
- .../eink/EinkButtonConfigFragment.java        | 104 ++++++++++++++
- .../display/eink/EinkPresetDefaults.java      |  90 +++++++++++++
- .../display/eink/EinkPresetEditFragment.java  | 127 ++++++++++++++++++
- .../display/eink/EinkPresetsFragment.java     |  85 ++++++++++++
- .../display/eink/EinkSettingsFragment.java    | 113 ++++++++++++++++
- 11 files changed, 792 insertions(+)
+ res/xml/eink_display_settings.xml             |  53 ++++++++
+ res/xml/eink_preset_edit.xml                  |  29 +++++
+ res/xml/eink_presets_list.xml                 |  22 ++++
+ .../eink/EinkButtonConfigFragment.java        | 104 +++++++++++++++
+ .../display/eink/EinkPresetDefaults.java      |  94 ++++++++++++++
+ .../display/eink/EinkPresetEditFragment.java  | 116 +++++++++++++++++
+ .../display/eink/EinkPresetsFragment.java     |  85 +++++++++++++
+ .../display/eink/EinkSettingsFragment.java    | 119 ++++++++++++++++++
+ .../display/eink/StepperPreference.java       | 101 +++++++++++++++
+ 13 files changed, 920 insertions(+)
+ create mode 100644 res/layout/eink_stepper_preference.xml
  create mode 100644 res/values/eink_strings.xml
  create mode 100644 res/xml/eink_button_settings.xml
  create mode 100644 res/xml/eink_display_settings.xml
@@ -34,13 +37,71 @@ Change-Id: I6debd4f068645334137517ea081d50e970a0626d
  create mode 100644 src/com/android/settings/display/eink/EinkPresetEditFragment.java
  create mode 100644 src/com/android/settings/display/eink/EinkPresetsFragment.java
  create mode 100644 src/com/android/settings/display/eink/EinkSettingsFragment.java
+ create mode 100644 src/com/android/settings/display/eink/StepperPreference.java
 
+diff --git a/res/layout/eink_stepper_preference.xml b/res/layout/eink_stepper_preference.xml
+new file mode 100644
+index 00000000000..488b991d746
+--- /dev/null
++++ b/res/layout/eink_stepper_preference.xml
+@@ -0,0 +1,51 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- StepperPreference layout: title row, then a row with [−−] [−] value [+] [++].
++     Mirrors the E-Ink Center stepper UX so users see the same control everywhere. -->
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:layout_width="match_parent"
++    android:layout_height="wrap_content"
++    android:orientation="vertical"
++    android:paddingStart="16dp"
++    android:paddingEnd="16dp"
++    android:paddingTop="12dp"
++    android:paddingBottom="12dp">
++
++    <TextView android:id="@android:id/title"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:textAppearance="?android:attr/textAppearanceListItem"
++        android:singleLine="true"
++        android:ellipsize="marquee" />
++
++    <LinearLayout
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:orientation="horizontal"
++        android:gravity="center_vertical"
++        android:layout_marginTop="8dp">
++
++        <Button android:id="@+id/stepper_dec_coarse"
++            android:layout_width="52dp" android:layout_height="40dp"
++            android:text="−−" android:textSize="13sp"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/stepper_dec"
++            android:layout_width="52dp" android:layout_height="40dp"
++            android:text="−" android:textSize="20sp"
++            android:minWidth="0dp" android:padding="0dp" />
++        <TextView android:id="@+id/stepper_value"
++            android:layout_width="0dp" android:layout_weight="1"
++            android:layout_height="wrap_content"
++            android:textSize="18sp" android:textStyle="bold"
++            android:gravity="center" />
++        <Button android:id="@+id/stepper_inc"
++            android:layout_width="52dp" android:layout_height="40dp"
++            android:text="+" android:textSize="20sp"
++            android:minWidth="0dp" android:padding="0dp" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <Button android:id="@+id/stepper_inc_coarse"
++            android:layout_width="52dp" android:layout_height="40dp"
++            android:text="++" android:textSize="13sp"
++            android:minWidth="0dp" android:padding="0dp" />
++    </LinearLayout>
++</LinearLayout>
 diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
 new file mode 100644
-index 00000000000..82f9b8f7ae5
+index 00000000000..47f72d577e8
 --- /dev/null
 +++ b/res/values/eink_strings.xml
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,87 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources>
 +    <!-- E-Ink Settings -->
@@ -49,9 +110,9 @@ index 00000000000..82f9b8f7ae5
 +    <string name="eink_cold_light_title">Cold frontlight</string>
 +    <string name="eink_cold_light_summary">Blue-toned front illumination — also controlled by the brightness slider</string>
 +    <string name="eink_warm_light_title">Warm frontlight</string>
-+    <string name="eink_warm_light_summary">Amber-toned front illumination (0–254)</string>
++    <string name="eink_warm_light_summary">Amber-toned front illumination</string>
 +    <string name="eink_kbd_backlight_title">Keyboard backlight</string>
-+    <string name="eink_kbd_backlight_summary">Physical keyboard backlight brightness (0–254)</string>
++    <string name="eink_kbd_backlight_summary">Physical keyboard backlight brightness</string>
 +    <string name="eink_force_refresh_title">Clear ghosting</string>
 +    <string name="eink_force_refresh_summary">Force a full display clear to remove residual images</string>
 +    <string name="eink_button_config_title">E-Ink button</string>
@@ -60,10 +121,9 @@ index 00000000000..82f9b8f7ae5
 +    <string name="eink_presets_summary">Edit the cold/warm/keyboard/mode values for each preset</string>
 +
 +    <!-- Preset editor -->
-+    <string name="eink_preset_name_title">Name</string>
-+    <string name="eink_preset_cold_title">Cold frontlight (%)</string>
-+    <string name="eink_preset_warm_title">Warm frontlight (0–254)</string>
-+    <string name="eink_preset_kbd_title">Keyboard backlight (0–254)</string>
++    <string name="eink_preset_cold_title">Cold frontlight</string>
++    <string name="eink_preset_warm_title">Warm frontlight</string>
++    <string name="eink_preset_kbd_title">Keyboard backlight</string>
 +    <string name="eink_preset_mode_title">Refresh mode</string>
 +    <string name="eink_preset_reset_title">Reset this preset</string>
 +    <string name="eink_preset_reset_summary">Restore the original cold/warm/keyboard/mode/name values</string>
@@ -205,14 +265,13 @@ index 00000000000..e9c836f0517
 +</PreferenceScreen>
 diff --git a/res/xml/eink_display_settings.xml b/res/xml/eink_display_settings.xml
 new file mode 100644
-index 00000000000..cce62c492c0
+index 00000000000..8f2f589c700
 --- /dev/null
 +++ b/res/xml/eink_display_settings.xml
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,53 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<PreferenceScreen
 +    xmlns:android="http://schemas.android.com/apk/res/android"
-+    xmlns:settings="http://schemas.android.com/apk/res-auto"
 +    android:title="@string/eink_settings_title">
 +
 +    <!-- Refresh mode -->
@@ -225,31 +284,22 @@ index 00000000000..cce62c492c0
 +        android:defaultValue="1" />
 +
 +    <!-- Cold frontlight (display %, 0-100, matches QS slider) -->
-+    <com.android.settings.widget.SeekBarPreference
++    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_pref_cold"
 +        android:title="@string/eink_cold_light_title"
-+        android:summary="@string/eink_cold_light_summary"
-+        android:max="100"
-+        settings:min="0"
-+        android:defaultValue="50" />
++        android:summary="@string/eink_cold_light_summary" />
 +
-+    <!-- Warm frontlight -->
-+    <com.android.settings.widget.SeekBarPreference
++    <!-- Warm frontlight (0-100 % in UI; converted to 0-254 hardware) -->
++    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_pref_warm"
 +        android:title="@string/eink_warm_light_title"
-+        android:summary="@string/eink_warm_light_summary"
-+        android:max="254"
-+        settings:min="0"
-+        android:defaultValue="0" />
++        android:summary="@string/eink_warm_light_summary" />
 +
-+    <!-- Keyboard backlight -->
-+    <com.android.settings.widget.SeekBarPreference
++    <!-- Keyboard backlight (0-100 % in UI; converted to 0-254 hardware) -->
++    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_pref_kbd_backlight"
 +        android:title="@string/eink_kbd_backlight_title"
-+        android:summary="@string/eink_kbd_backlight_summary"
-+        android:max="254"
-+        settings:min="0"
-+        android:defaultValue="128" />
++        android:summary="@string/eink_kbd_backlight_summary" />
 +
 +    <!-- Force full refresh -->
 +    <Preference
@@ -274,37 +324,25 @@ index 00000000000..cce62c492c0
 +</PreferenceScreen>
 diff --git a/res/xml/eink_preset_edit.xml b/res/xml/eink_preset_edit.xml
 new file mode 100644
-index 00000000000..1dfe90d1b3d
+index 00000000000..f7c4e663a26
 --- /dev/null
 +++ b/res/xml/eink_preset_edit.xml
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,29 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<PreferenceScreen
-+    xmlns:android="http://schemas.android.com/apk/res/android"
-+    xmlns:settings="http://schemas.android.com/apk/res-auto">
++    xmlns:android="http://schemas.android.com/apk/res/android">
 +
-+    <EditTextPreference
-+        android:key="eink_preset_name"
-+        android:title="@string/eink_preset_name_title"
-+        android:summary="%s" />
-+
-+    <com.android.settings.widget.SeekBarPreference
++    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_preset_cold"
-+        android:title="@string/eink_preset_cold_title"
-+        android:max="100"
-+        settings:min="0" />
++        android:title="@string/eink_preset_cold_title" />
 +
-+    <com.android.settings.widget.SeekBarPreference
++    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_preset_warm"
-+        android:title="@string/eink_preset_warm_title"
-+        android:max="254"
-+        settings:min="0" />
++        android:title="@string/eink_preset_warm_title" />
 +
-+    <com.android.settings.widget.SeekBarPreference
++    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_preset_kbd"
-+        android:title="@string/eink_preset_kbd_title"
-+        android:max="254"
-+        settings:min="0" />
++        android:title="@string/eink_preset_kbd_title" />
 +
 +    <ListPreference
 +        android:key="eink_preset_mode"
@@ -459,10 +497,10 @@ index 00000000000..e64333e1fb4
 +}
 diff --git a/src/com/android/settings/display/eink/EinkPresetDefaults.java b/src/com/android/settings/display/eink/EinkPresetDefaults.java
 new file mode 100644
-index 00000000000..92a52a6b282
+index 00000000000..85e7a517da9
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkPresetDefaults.java
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,94 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -513,11 +551,6 @@ index 00000000000..92a52a6b282
 +    static int defaultKbd(int slot)  { return DEFAULTS[slot][2]; }
 +    static int defaultMode(int slot) { return DEFAULTS[slot][3]; }
 +
-+    static String getName(Context ctx, ContentResolver cr, int slot) {
-+        String s = Settings.System.getString(cr, key(slot, "name"));
-+        return s != null ? s : defaultName(ctx, slot);
-+    }
-+
 +    static int getCold(ContentResolver cr, int slot) {
 +        return Settings.System.getInt(cr, key(slot, "cold"), defaultCold(slot));
 +    }
@@ -535,11 +568,20 @@ index 00000000000..92a52a6b282
 +    }
 +
 +    static void resetSlot(ContentResolver cr, int slot) {
-+        Settings.System.putString(cr, key(slot, "name"), null);
 +        Settings.System.putInt(cr, key(slot, "cold"), defaultCold(slot));
 +        Settings.System.putInt(cr, key(slot, "warm"), defaultWarm(slot));
 +        Settings.System.putInt(cr, key(slot, "kbd"),  defaultKbd(slot));
 +        Settings.System.putInt(cr, key(slot, "mode"), defaultMode(slot));
++    }
++
++    /** Convert 0-254 hardware (warm/kbd) to user-visible 0-100 percentage. */
++    static int toPct(int hw) {
++        return Math.round(Math.max(0, Math.min(254, hw)) * 100f / 254f);
++    }
++
++    /** Convert 0-100 percentage back to 0-254 hardware. */
++    static int toHw(int pct) {
++        return Math.round(Math.max(0, Math.min(100, pct)) * 254f / 100f);
 +    }
 +
 +    /** Refresh-mode integer to short label used in summaries. */
@@ -555,10 +597,10 @@ index 00000000000..92a52a6b282
 +}
 diff --git a/src/com/android/settings/display/eink/EinkPresetEditFragment.java b/src/com/android/settings/display/eink/EinkPresetEditFragment.java
 new file mode 100644
-index 00000000000..6f701d173ec
+index 00000000000..595dfe2012b
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkPresetEditFragment.java
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,116 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -571,19 +613,21 @@ index 00000000000..6f701d173ec
 +import android.os.Bundle;
 +import android.provider.Settings;
 +
-+import androidx.preference.EditTextPreference;
 +import androidx.preference.ListPreference;
 +import androidx.preference.Preference;
-+import com.android.settings.widget.SeekBarPreference;
 +
 +import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 +import com.android.settings.R;
 +import com.android.settings.SettingsPreferenceFragment;
 +
 +/**
-+ * Edits a single preset slot (name, cold %, warm, kbd, refresh mode). Slot index is passed
-+ * via fragment arguments under {@link #ARG_SLOT}. Each change writes immediately to
-+ * Settings.System; the on-screen E-Ink Center reflects updates the next time it opens.
++ * Edits a single preset slot (cold / warm / kbd / refresh mode). Slot index is passed via
++ * fragment arguments under {@link #ARG_SLOT}. Each change writes immediately to Settings.System;
++ * the on-screen E-Ink Center reflects updates the next time it opens.
++ *
++ * UI works in 0–100 percentages everywhere. Cold is also stored as 0–100 (it maps to the
++ * display-percentage AIDL); warm and kbd are stored as 0–254 hardware so we convert at the
++ * UI boundary via {@link EinkPresetDefaults#toPct} and {@link EinkPresetDefaults#toHw}.
 + */
 +public class EinkPresetEditFragment extends SettingsPreferenceFragment
 +        implements Preference.OnPreferenceChangeListener {
@@ -601,27 +645,22 @@ index 00000000000..6f701d173ec
 +
 +        ContentResolver cr = getContext().getContentResolver();
 +
-+        EditTextPreference namePref = findPreference("eink_preset_name");
-+        SeekBarPreference coldPref = findPreference("eink_preset_cold");
-+        SeekBarPreference warmPref = findPreference("eink_preset_warm");
-+        SeekBarPreference kbdPref  = findPreference("eink_preset_kbd");
++        StepperPreference coldPref = findPreference("eink_preset_cold");
++        StepperPreference warmPref = findPreference("eink_preset_warm");
++        StepperPreference kbdPref  = findPreference("eink_preset_kbd");
 +        ListPreference modePref    = findPreference("eink_preset_mode");
 +        Preference resetPref       = findPreference("eink_preset_reset");
 +
-+        if (namePref != null) {
-+            namePref.setText(EinkPresetDefaults.getName(getContext(), cr, mSlot));
-+            namePref.setOnPreferenceChangeListener(this);
-+        }
 +        if (coldPref != null) {
-+            coldPref.setProgress(EinkPresetDefaults.getCold(cr, mSlot));
++            coldPref.setValue(EinkPresetDefaults.getCold(cr, mSlot));
 +            coldPref.setOnPreferenceChangeListener(this);
 +        }
 +        if (warmPref != null) {
-+            warmPref.setProgress(EinkPresetDefaults.getWarm(cr, mSlot));
++            warmPref.setValue(EinkPresetDefaults.toPct(EinkPresetDefaults.getWarm(cr, mSlot)));
 +            warmPref.setOnPreferenceChangeListener(this);
 +        }
 +        if (kbdPref != null) {
-+            kbdPref.setProgress(EinkPresetDefaults.getKbd(cr, mSlot));
++            kbdPref.setValue(EinkPresetDefaults.toPct(EinkPresetDefaults.getKbd(cr, mSlot)));
 +            kbdPref.setOnPreferenceChangeListener(this);
 +        }
 +        if (modePref != null) {
@@ -632,32 +671,24 @@ index 00000000000..6f701d173ec
 +            resetPref.setOnPreferenceClickListener(p -> { confirmReset(); return true; });
 +        }
 +
-+        getActivity().setTitle(EinkPresetDefaults.getName(getContext(), cr, mSlot));
++        getActivity().setTitle(EinkPresetDefaults.defaultName(getContext(), mSlot));
 +    }
 +
 +    @Override
 +    public boolean onPreferenceChange(Preference preference, Object newValue) {
 +        ContentResolver cr = getContext().getContentResolver();
 +        switch (preference.getKey()) {
-+            case "eink_preset_name":
-+                String name = (String) newValue;
-+                Settings.System.putString(cr,
-+                        EinkPresetDefaults.key(mSlot, "name"),
-+                        name == null || name.isEmpty() ? null : name);
-+                getActivity().setTitle(name == null || name.isEmpty()
-+                        ? EinkPresetDefaults.defaultName(getContext(), mSlot) : name);
-+                return true;
 +            case "eink_preset_cold":
 +                Settings.System.putInt(cr,
 +                        EinkPresetDefaults.key(mSlot, "cold"), (Integer) newValue);
 +                return true;
 +            case "eink_preset_warm":
-+                Settings.System.putInt(cr,
-+                        EinkPresetDefaults.key(mSlot, "warm"), (Integer) newValue);
++                Settings.System.putInt(cr, EinkPresetDefaults.key(mSlot, "warm"),
++                        EinkPresetDefaults.toHw((Integer) newValue));
 +                return true;
 +            case "eink_preset_kbd":
-+                Settings.System.putInt(cr,
-+                        EinkPresetDefaults.key(mSlot, "kbd"), (Integer) newValue);
++                Settings.System.putInt(cr, EinkPresetDefaults.key(mSlot, "kbd"),
++                        EinkPresetDefaults.toHw((Integer) newValue));
 +                return true;
 +            case "eink_preset_mode":
 +                Settings.System.putInt(cr,
@@ -688,7 +719,7 @@ index 00000000000..6f701d173ec
 +}
 diff --git a/src/com/android/settings/display/eink/EinkPresetsFragment.java b/src/com/android/settings/display/eink/EinkPresetsFragment.java
 new file mode 100644
-index 00000000000..028bd2196ed
+index 00000000000..1759560954d
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkPresetsFragment.java
 @@ -0,0 +1,85 @@
@@ -749,13 +780,13 @@ index 00000000000..028bd2196ed
 +
 +    private void refreshSlotSummary(Preference p, int slot) {
 +        ContentResolver cr = getContext().getContentResolver();
-+        String name = EinkPresetDefaults.getName(getContext(), cr, slot);
 +        int cold = EinkPresetDefaults.getCold(cr, slot);
 +        int warm = EinkPresetDefaults.getWarm(cr, slot);
 +        int kbd  = EinkPresetDefaults.getKbd(cr, slot);
 +        int mode = EinkPresetDefaults.getMode(cr, slot);
-+        p.setTitle(name);
-+        p.setSummary("Cold " + cold + "% · Warm " + warm + " · Kbd " + kbd
++        p.setTitle(EinkPresetDefaults.defaultName(getContext(), slot));
++        p.setSummary("Cold " + cold + "% · Warm " + EinkPresetDefaults.toPct(warm) + "%"
++                + " · Kbd " + EinkPresetDefaults.toPct(kbd) + "%"
 +                + " · Mode " + EinkPresetDefaults.modeLabel(mode));
 +    }
 +
@@ -779,10 +810,10 @@ index 00000000000..028bd2196ed
 +}
 diff --git a/src/com/android/settings/display/eink/EinkSettingsFragment.java b/src/com/android/settings/display/eink/EinkSettingsFragment.java
 new file mode 100644
-index 00000000000..3f4a9244eba
+index 00000000000..c898b7436ce
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkSettingsFragment.java
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,119 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -799,7 +830,6 @@ index 00000000000..3f4a9244eba
 +
 +import androidx.preference.ListPreference;
 +import androidx.preference.Preference;
-+import com.android.settings.widget.SeekBarPreference;
 +
 +import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 +import com.android.settings.R;
@@ -807,7 +837,11 @@ index 00000000000..3f4a9244eba
 +
 +/**
 + * E-Ink display settings: refresh mode, cold/warm frontlight, keyboard backlight,
-+ * and entry points to button config and preset editor.
++ * and entry points to button config and the preset editor.
++ *
++ * Cold is 0–100 (display % directly from the AIDL). Warm/kbd are stored as 0–254 hardware
++ * but the UI works in 0–100 — conversion happens at the AIDL boundary via
++ * {@link EinkPresetDefaults#toPct} / {@link EinkPresetDefaults#toHw}.
 + */
 +public class EinkSettingsFragment extends SettingsPreferenceFragment
 +        implements Preference.OnPreferenceChangeListener {
@@ -826,17 +860,17 @@ index 00000000000..3f4a9244eba
 +        setPreferencesFromResource(R.xml.eink_display_settings, rootKey);
 +
 +        ListPreference modePref = findPreference(KEY_REFRESH_MODE);
-+        SeekBarPreference coldPref = findPreference(KEY_COLD);
-+        SeekBarPreference warmPref = findPreference(KEY_WARM);
-+        SeekBarPreference kbdPref  = findPreference(KEY_KBD);
++        StepperPreference coldPref = findPreference(KEY_COLD);
++        StepperPreference warmPref = findPreference(KEY_WARM);
++        StepperPreference kbdPref  = findPreference(KEY_KBD);
 +
 +        IEinkManager eink = getEink();
 +        if (eink != null) {
 +            try {
 +                if (modePref != null) modePref.setValue(String.valueOf(eink.getRefreshMode()));
-+                if (coldPref != null) coldPref.setProgress(eink.getFrontlightCold());
-+                if (warmPref != null) warmPref.setProgress(eink.getFrontlightWarm());
-+                if (kbdPref  != null) kbdPref.setProgress(eink.getKeyboardBacklight());
++                if (coldPref != null) coldPref.setValue(eink.getFrontlightCold());
++                if (warmPref != null) warmPref.setValue(EinkPresetDefaults.toPct(eink.getFrontlightWarm()));
++                if (kbdPref  != null) kbdPref.setValue(EinkPresetDefaults.toPct(eink.getKeyboardBacklight()));
 +            } catch (RemoteException e) {
 +                Log.e(TAG, "Failed to read eink values", e);
 +            }
@@ -866,17 +900,20 @@ index 00000000000..3f4a9244eba
 +                case KEY_REFRESH_MODE:
 +                    eink.setRefreshMode(Integer.parseInt((String) newValue));
 +                    break;
-+                case KEY_COLD:
-+                    eink.setFrontlight((Integer) newValue,
-+                            ((SeekBarPreference) findPreference(KEY_WARM)).getProgress());
++                case KEY_COLD: {
++                    StepperPreference warm = findPreference(KEY_WARM);
++                    int warmHw = warm != null ? EinkPresetDefaults.toHw(warm.getValue()) : 0;
++                    eink.setFrontlight((Integer) newValue, warmHw);
 +                    break;
-+                case KEY_WARM:
-+                    eink.setFrontlight(
-+                            ((SeekBarPreference) findPreference(KEY_COLD)).getProgress(),
-+                            (Integer) newValue);
++                }
++                case KEY_WARM: {
++                    StepperPreference cold = findPreference(KEY_COLD);
++                    int coldPct = cold != null ? cold.getValue() : 0;
++                    eink.setFrontlight(coldPct, EinkPresetDefaults.toHw((Integer) newValue));
 +                    break;
++                }
 +                case KEY_KBD:
-+                    eink.setKeyboardBacklight((Integer) newValue);
++                    eink.setKeyboardBacklight(EinkPresetDefaults.toHw((Integer) newValue));
 +                    break;
 +            }
 +        } catch (RemoteException e) {
@@ -894,6 +931,113 @@ index 00000000000..3f4a9244eba
 +    private IEinkManager getEink() {
 +        return IEinkManager.Stub.asInterface(
 +                ServiceManager.getService(android.content.Context.EINK_SERVICE));
++    }
++}
+diff --git a/src/com/android/settings/display/eink/StepperPreference.java b/src/com/android/settings/display/eink/StepperPreference.java
+new file mode 100644
+index 00000000000..6e76ad00335
+--- /dev/null
++++ b/src/com/android/settings/display/eink/StepperPreference.java
+@@ -0,0 +1,101 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.content.Context;
++import android.util.AttributeSet;
++import android.view.View;
++import android.widget.TextView;
++
++import androidx.annotation.NonNull;
++import androidx.preference.Preference;
++import androidx.preference.PreferenceViewHolder;
++
++import com.android.settings.R;
++
++/**
++ * Two-row preference: title up top, then a stepper [−−][−] value [+][++].
++ *
++ * Operates in 0–100 by default with a "%" suffix on the displayed value. Fragments are
++ * responsible for loading the initial value via {@link #setValue} and reacting to changes via
++ * {@link #setOnPreferenceChangeListener}; this class doesn't auto-persist anything.
++ */
++public class StepperPreference extends Preference {
++
++    private static final int FINE   = 1;
++    private static final int COARSE = 10;
++
++    private int mMin = 0;
++    private int mMax = 100;
++    private int mValue = 0;
++    private String mSuffix = "%";
++
++    public StepperPreference(Context context, AttributeSet attrs) {
++        super(context, attrs);
++        setLayoutResource(R.layout.eink_stepper_preference);
++        setSelectable(false);
++    }
++
++    public StepperPreference(Context context) {
++        this(context, null);
++    }
++
++    public void setMin(int min) {
++        mMin = min;
++        if (mValue < mMin) setValue(mMin);
++    }
++
++    public void setMax(int max) {
++        mMax = max;
++        if (mValue > mMax) setValue(mMax);
++    }
++
++    public void setSuffix(String suffix) {
++        mSuffix = suffix == null ? "" : suffix;
++        notifyChanged();
++    }
++
++    public int getValue() {
++        return mValue;
++    }
++
++    public void setValue(int value) {
++        int clamped = clamp(value);
++        if (clamped == mValue) return;
++        mValue = clamped;
++        notifyChanged();
++    }
++
++    @Override
++    public void onBindViewHolder(@NonNull PreferenceViewHolder holder) {
++        super.onBindViewHolder(holder);
++
++        TextView valueText = (TextView) holder.findViewById(R.id.stepper_value);
++        if (valueText != null) valueText.setText(mValue + mSuffix);
++
++        bindStep(holder, R.id.stepper_dec_coarse, -COARSE);
++        bindStep(holder, R.id.stepper_dec,        -FINE);
++        bindStep(holder, R.id.stepper_inc,        +FINE);
++        bindStep(holder, R.id.stepper_inc_coarse, +COARSE);
++    }
++
++    private void bindStep(PreferenceViewHolder holder, int id, int delta) {
++        View v = holder.findViewById(id);
++        if (v == null) return;
++        v.setOnClickListener(b -> {
++            int newVal = clamp(mValue + delta);
++            if (newVal == mValue) return;
++            if (callChangeListener(newVal)) {
++                mValue = newVal;
++                notifyChanged();
++            }
++        });
++    }
++
++    private int clamp(int v) {
++        return Math.max(mMin, Math.min(mMax, v));
 +    }
 +}
 -- 

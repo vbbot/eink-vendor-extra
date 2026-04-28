@@ -1,4 +1,4 @@
-From 59c8c2fdfe8c799d0c1c94959f2d37bf7bd5e10a Mon Sep 17 00:00:00 2001
+From 3c9c5ed91fcc0db3d47e12dde67325037c223fde Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
 Subject: [PATCH] eink: fix Settings.System writes using
@@ -7,11 +7,11 @@ Subject: [PATCH] eink: fix Settings.System writes using
 Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
  core/java/android/eink/IEinkManager.aidl      |   2 +-
- .../res/layout/eink_center_overlay.xml        | 199 ++++++++----
- .../systemui/eink/EinkCenterController.java   | 300 +++++++++++++++---
+ .../res/layout/eink_center_overlay.xml        | 205 ++++++++----
+ .../systemui/eink/EinkCenterController.java   | 303 +++++++++++++++---
  .../systemui/eink/EinkPresetManager.java      |  27 +-
  .../server/eink/EinkManagerService.java       | 109 +++++--
- 5 files changed, 501 insertions(+), 136 deletions(-)
+ 5 files changed, 510 insertions(+), 136 deletions(-)
 
 diff --git a/core/java/android/eink/IEinkManager.aidl b/core/java/android/eink/IEinkManager.aidl
 index ab0b958e6122..649792ba84fb 100644
@@ -27,7 +27,7 @@ index ab0b958e6122..649792ba84fb 100644
  
      // brightness: 0-254
 diff --git a/packages/SystemUI/res/layout/eink_center_overlay.xml b/packages/SystemUI/res/layout/eink_center_overlay.xml
-index 0cfb0143c300..5eb9316b825c 100644
+index 0cfb0143c300..a75820f6c706 100644
 --- a/packages/SystemUI/res/layout/eink_center_overlay.xml
 +++ b/packages/SystemUI/res/layout/eink_center_overlay.xml
 @@ -4,7 +4,7 @@
@@ -83,7 +83,7 @@ index 0cfb0143c300..5eb9316b825c 100644
                  android:minWidth="0dp"
                  android:padding="0dp" />
          </LinearLayout>
-@@ -61,18 +60,30 @@
+@@ -61,18 +60,32 @@
      <View
          android:layout_width="match_parent"
          android:layout_height="1dp"
@@ -94,7 +94,7 @@ index 0cfb0143c300..5eb9316b825c 100644
 -    <!-- Cold frontlight label -->
 -    <TextView
 -        android:layout_width="wrap_content"
-+    <!-- Cold frontlight label + per-light toggle -->
++    <!-- Cold frontlight label with inline on/off icon -->
 +    <LinearLayout
 +        android:layout_width="match_parent"
          android:layout_height="wrap_content"
@@ -106,6 +106,12 @@ index 0cfb0143c300..5eb9316b825c 100644
 +        android:orientation="horizontal"
 +        android:gravity="center_vertical"
 +        android:layout_marginBottom="8dp">
++        <TextView android:id="@+id/cold_toggle_icon"
++            android:layout_width="32dp" android:layout_height="32dp"
++            android:text="●" android:textSize="16sp"
++            android:textColor="#FF000000"
++            android:gravity="center"
++            android:clickable="true" android:focusable="true" />
 +        <TextView
 +            android:layout_width="0dp"
 +            android:layout_weight="1"
@@ -113,17 +119,13 @@ index 0cfb0143c300..5eb9316b825c 100644
 +            android:text="COLD LIGHT"
 +            android:textColor="#AA000000"
 +            android:textSize="11sp"
-+            android:letterSpacing="0.08" />
-+        <Button android:id="@+id/cold_toggle_btn"
-+            android:layout_width="36dp" android:layout_height="36dp"
-+            android:text="☀" android:textSize="14sp"
-+            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
-+            android:minWidth="0dp" android:padding="0dp" />
++            android:letterSpacing="0.08"
++            android:paddingStart="4dp" />
 +    </LinearLayout>
  
      <!-- Cold frontlight step controls -->
      <LinearLayout
-@@ -85,42 +96,54 @@
+@@ -85,42 +98,56 @@
          <Button android:id="@+id/cold_dec_coarse"
              android:layout_width="52dp" android:layout_height="44dp"
              android:text="−−" android:textSize="13sp"
@@ -162,7 +164,7 @@ index 0cfb0143c300..5eb9316b825c 100644
 -    <!-- Warm frontlight label -->
 -    <TextView
 -        android:layout_width="wrap_content"
-+    <!-- Warm frontlight label + per-light toggle -->
++    <!-- Warm frontlight label with inline on/off icon -->
 +    <LinearLayout
 +        android:layout_width="match_parent"
          android:layout_height="wrap_content"
@@ -174,6 +176,12 @@ index 0cfb0143c300..5eb9316b825c 100644
 +        android:orientation="horizontal"
 +        android:gravity="center_vertical"
 +        android:layout_marginBottom="8dp">
++        <TextView android:id="@+id/warm_toggle_icon"
++            android:layout_width="32dp" android:layout_height="32dp"
++            android:text="●" android:textSize="16sp"
++            android:textColor="#FF000000"
++            android:gravity="center"
++            android:clickable="true" android:focusable="true" />
 +        <TextView
 +            android:layout_width="0dp"
 +            android:layout_weight="1"
@@ -181,17 +189,13 @@ index 0cfb0143c300..5eb9316b825c 100644
 +            android:text="WARM LIGHT"
 +            android:textColor="#AA000000"
 +            android:textSize="11sp"
-+            android:letterSpacing="0.08" />
-+        <Button android:id="@+id/warm_toggle_btn"
-+            android:layout_width="36dp" android:layout_height="36dp"
-+            android:text="☀" android:textSize="14sp"
-+            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
-+            android:minWidth="0dp" android:padding="0dp" />
++            android:letterSpacing="0.08"
++            android:paddingStart="4dp" />
 +    </LinearLayout>
  
      <!-- Warm frontlight step controls -->
      <LinearLayout
-@@ -133,30 +156,90 @@
+@@ -133,30 +160,92 @@
          <Button android:id="@+id/warm_dec_coarse"
              android:layout_width="52dp" android:layout_height="44dp"
              android:text="−−" android:textSize="13sp"
@@ -227,13 +231,19 @@ index 0cfb0143c300..5eb9316b825c 100644
 +            android:minWidth="0dp" android:padding="0dp" />
 +    </LinearLayout>
 +
-+    <!-- Keyboard backlight label + per-light toggle -->
++    <!-- Keyboard backlight label with inline on/off icon -->
 +    <LinearLayout
 +        android:layout_width="match_parent"
 +        android:layout_height="wrap_content"
 +        android:orientation="horizontal"
 +        android:gravity="center_vertical"
 +        android:layout_marginBottom="8dp">
++        <TextView android:id="@+id/kbd_toggle_icon"
++            android:layout_width="32dp" android:layout_height="32dp"
++            android:text="●" android:textSize="16sp"
++            android:textColor="#FF000000"
++            android:gravity="center"
++            android:clickable="true" android:focusable="true" />
 +        <TextView
 +            android:layout_width="0dp"
 +            android:layout_weight="1"
@@ -241,12 +251,8 @@ index 0cfb0143c300..5eb9316b825c 100644
 +            android:text="KEYBOARD"
 +            android:textColor="#AA000000"
 +            android:textSize="11sp"
-+            android:letterSpacing="0.08" />
-+        <Button android:id="@+id/kbd_toggle_btn"
-+            android:layout_width="36dp" android:layout_height="36dp"
-+            android:text="☀" android:textSize="14sp"
-+            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
-+            android:minWidth="0dp" android:padding="0dp" />
++            android:letterSpacing="0.08"
++            android:paddingStart="4dp" />
 +    </LinearLayout>
 +
 +    <!-- Keyboard backlight step controls -->
@@ -287,7 +293,7 @@ index 0cfb0143c300..5eb9316b825c 100644
              android:minWidth="0dp" android:padding="0dp" />
      </LinearLayout>
  
-@@ -164,7 +247,7 @@
+@@ -164,7 +253,7 @@
      <View
          android:layout_width="match_parent"
          android:layout_height="1dp"
@@ -296,7 +302,7 @@ index 0cfb0143c300..5eb9316b825c 100644
          android:layout_marginBottom="16dp" />
  
      <!-- Refresh mode label -->
-@@ -172,46 +255,40 @@
+@@ -172,46 +261,40 @@
          android:layout_width="wrap_content"
          android:layout_height="wrap_content"
          android:text="REFRESH MODE"
@@ -357,7 +363,7 @@ index 0cfb0143c300..5eb9316b825c 100644
          android:layout_marginBottom="16dp" />
  
      <!-- Presets label -->
-@@ -219,7 +296,7 @@
+@@ -219,7 +302,7 @@
          android:layout_width="wrap_content"
          android:layout_height="wrap_content"
          android:text="PRESETS"
@@ -367,7 +373,7 @@ index 0cfb0143c300..5eb9316b825c 100644
          android:letterSpacing="0.08"
          android:layout_marginBottom="8dp" />
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
-index 38ad47bc7ef2..6115212d18d3 100644
+index 38ad47bc7ef2..8a75c49b76f2 100644
 --- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
 @@ -7,6 +7,7 @@ package com.android.systemui.eink;
@@ -427,9 +433,9 @@ index 38ad47bc7ef2..6115212d18d3 100644
 -    // Mode buttons in mode order (BALANCED=1, CLEAR=2, SMOOTH=3, SPEED=4)
      private Button[] mModeButtons;
 +    private Button mLightsToggle;
-+    private Button mColdToggle;
-+    private Button mWarmToggle;
-+    private Button mKbdToggle;
++    private TextView mColdIcon;
++    private TextView mWarmIcon;
++    private TextView mKbdIcon;
  
      @Inject
      public EinkCenterController(
@@ -447,12 +453,12 @@ index 38ad47bc7ef2..6115212d18d3 100644
 +        mLightsToggle = mOverlayView.findViewById(R.id.lights_toggle_btn);
 +        mLightsToggle.setOnClickListener(v -> toggleAllLights());
 +
-+        mColdToggle = mOverlayView.findViewById(R.id.cold_toggle_btn);
-+        mColdToggle.setOnClickListener(v -> toggleLight(Light.COLD));
-+        mWarmToggle = mOverlayView.findViewById(R.id.warm_toggle_btn);
-+        mWarmToggle.setOnClickListener(v -> toggleLight(Light.WARM));
-+        mKbdToggle = mOverlayView.findViewById(R.id.kbd_toggle_btn);
-+        mKbdToggle.setOnClickListener(v -> toggleLight(Light.KBD));
++        mColdIcon = mOverlayView.findViewById(R.id.cold_toggle_icon);
++        mColdIcon.setOnClickListener(v -> toggleLight(Light.COLD));
++        mWarmIcon = mOverlayView.findViewById(R.id.warm_toggle_icon);
++        mWarmIcon.setOnClickListener(v -> toggleLight(Light.WARM));
++        mKbdIcon = mOverlayView.findViewById(R.id.kbd_toggle_icon);
++        mKbdIcon.setOnClickListener(v -> toggleLight(Light.KBD));
 +
          mOverlayView.setOnTouchListener((v, ev) -> {
              if (ev.getAction() == MotionEvent.ACTION_OUTSIDE) hide();
@@ -530,7 +536,7 @@ index 38ad47bc7ef2..6115212d18d3 100644
              LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                      0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
              lp.setMargins(2, 0, 2, 0);
-@@ -222,18 +255,47 @@ public class EinkCenterController implements CoreStartable {
+@@ -222,18 +255,50 @@ public class EinkCenterController implements CoreStartable {
          try {
              int cold = eink.getFrontlightCold();
              int warm = eink.getFrontlightWarm();
@@ -551,19 +557,22 @@ index 38ad47bc7ef2..6115212d18d3 100644
          }
      }
  
++    private static final String ICON_ON  = "●"; // ●
++    private static final String ICON_OFF = "○"; // ○
++
 +    private void updateLightsToggle() {
 +        ContentResolver cr = mContext.getContentResolver();
 +        boolean coldOff = isOff(cr, KEY_COLD_OFF);
 +        boolean warmOff = isOff(cr, KEY_WARM_OFF);
 +        boolean kbdOff  = isOff(cr, KEY_KBD_OFF);
 +        // Master shows OFF only when all three are off
-+        applyToggleVisual(mLightsToggle, !(coldOff && warmOff && kbdOff));
-+        applyToggleVisual(mColdToggle, !coldOff);
-+        applyToggleVisual(mWarmToggle, !warmOff);
-+        applyToggleVisual(mKbdToggle,  !kbdOff);
++        applyMasterVisual(mLightsToggle, !(coldOff && warmOff && kbdOff));
++        mColdIcon.setText(coldOff ? ICON_OFF : ICON_ON);
++        mWarmIcon.setText(warmOff ? ICON_OFF : ICON_ON);
++        mKbdIcon.setText(kbdOff  ? ICON_OFF : ICON_ON);
 +    }
 +
-+    private static void applyToggleVisual(Button btn, boolean on) {
++    private static void applyMasterVisual(Button btn, boolean on) {
 +        btn.getBackground().setTint(on ? TINT_SELECTED : TINT_UNSELECTED);
 +        btn.setTextColor(on ? TEXT_SELECTED : TEXT_UNSELECTED);
 +    }
@@ -581,7 +590,7 @@ index 38ad47bc7ef2..6115212d18d3 100644
              mModeButtons[i].getBackground().setTint(selected ? TINT_SELECTED : TINT_UNSELECTED);
              mModeButtons[i].setTextColor(selected ? TEXT_SELECTED : TEXT_UNSELECTED);
          }
-@@ -243,32 +305,49 @@ public class EinkCenterController implements CoreStartable {
+@@ -243,32 +308,49 @@ public class EinkCenterController implements CoreStartable {
      // Actions
      // -------------------------------------------------------------------------
  
@@ -641,7 +650,7 @@ index 38ad47bc7ef2..6115212d18d3 100644
      private void setMode(int mode) {
          runOnEink(e -> e.setRefreshMode(mode));
          updateModeButtons(mode);
-@@ -279,13 +358,146 @@ public class EinkCenterController implements CoreStartable {
+@@ -279,13 +361,146 @@ public class EinkCenterController implements CoreStartable {
          if (eink == null) return;
          try {
              eink.setFrontlight(mPresetManager.getCold(slot), mPresetManager.getWarm(slot));
