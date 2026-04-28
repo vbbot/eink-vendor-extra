@@ -1,4 +1,4 @@
-From 5dcf83da9d06073f0029c4e6710bba42e200a2b1 Mon Sep 17 00:00:00 2001
+From 2bc66a0180ca39ae05c922c1698cba54ea5a48ff Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 13:34:52 +0200
 Subject: [PATCH] eink: add E-Ink display settings and button config
@@ -12,25 +12,35 @@ new E-Ink category.
 
 Change-Id: I6debd4f068645334137517ea081d50e970a0626d
 ---
- res/values/eink_strings.xml                   |  69 +++++++++++
+ res/values/eink_strings.xml                   |  88 ++++++++++++
  res/xml/display_settings.xml                  |  12 ++
- res/xml/eink_button_settings.xml              |  47 ++++++++
- res/xml/eink_display_settings.xml             |  56 +++++++++
- .../eink/EinkButtonConfigFragment.java        | 104 ++++++++++++++++
- .../display/eink/EinkSettingsFragment.java    | 113 ++++++++++++++++++
- 6 files changed, 401 insertions(+)
+ res/xml/eink_button_settings.xml              |  47 +++++++
+ res/xml/eink_display_settings.xml             |  63 +++++++++
+ res/xml/eink_preset_edit.xml                  |  41 ++++++
+ res/xml/eink_presets_list.xml                 |  22 +++
+ .../eink/EinkButtonConfigFragment.java        | 104 ++++++++++++++
+ .../display/eink/EinkPresetDefaults.java      |  90 +++++++++++++
+ .../display/eink/EinkPresetEditFragment.java  | 127 ++++++++++++++++++
+ .../display/eink/EinkPresetsFragment.java     |  85 ++++++++++++
+ .../display/eink/EinkSettingsFragment.java    | 113 ++++++++++++++++
+ 11 files changed, 792 insertions(+)
  create mode 100644 res/values/eink_strings.xml
  create mode 100644 res/xml/eink_button_settings.xml
  create mode 100644 res/xml/eink_display_settings.xml
+ create mode 100644 res/xml/eink_preset_edit.xml
+ create mode 100644 res/xml/eink_presets_list.xml
  create mode 100644 src/com/android/settings/display/eink/EinkButtonConfigFragment.java
+ create mode 100644 src/com/android/settings/display/eink/EinkPresetDefaults.java
+ create mode 100644 src/com/android/settings/display/eink/EinkPresetEditFragment.java
+ create mode 100644 src/com/android/settings/display/eink/EinkPresetsFragment.java
  create mode 100644 src/com/android/settings/display/eink/EinkSettingsFragment.java
 
 diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
 new file mode 100644
-index 00000000000..c144dacf51a
+index 00000000000..82f9b8f7ae5
 --- /dev/null
 +++ b/res/values/eink_strings.xml
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,88 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources>
 +    <!-- E-Ink Settings -->
@@ -46,6 +56,25 @@ index 00000000000..c144dacf51a
 +    <string name="eink_force_refresh_summary">Force a full display clear to remove residual images</string>
 +    <string name="eink_button_config_title">E-Ink button</string>
 +    <string name="eink_button_config_summary">Configure single, double, and long press actions</string>
++    <string name="eink_presets_title">E-Ink presets</string>
++    <string name="eink_presets_summary">Edit the cold/warm/keyboard/mode values for each preset</string>
++
++    <!-- Preset editor -->
++    <string name="eink_preset_name_title">Name</string>
++    <string name="eink_preset_cold_title">Cold frontlight (%)</string>
++    <string name="eink_preset_warm_title">Warm frontlight (0–254)</string>
++    <string name="eink_preset_kbd_title">Keyboard backlight (0–254)</string>
++    <string name="eink_preset_mode_title">Refresh mode</string>
++    <string name="eink_preset_reset_title">Reset this preset</string>
++    <string name="eink_preset_reset_summary">Restore the original cold/warm/keyboard/mode/name values</string>
++    <string name="eink_presets_reset_all_title">Reset all presets</string>
++    <string name="eink_presets_reset_all_summary">Restore every preset to its built-in default</string>
++
++    <!-- Default preset names (must match EinkPresetManager.DEFAULTS) -->
++    <string name="eink_preset_default_name_0">Day</string>
++    <string name="eink_preset_default_name_1">Night</string>
++    <string name="eink_preset_default_name_2">Reading</string>
++    <string name="eink_preset_default_name_3">Focus</string>
 +
 +    <!-- Button config -->
 +    <string name="eink_btn_single_title">Single press</string>
@@ -176,10 +205,10 @@ index 00000000000..e9c836f0517
 +</PreferenceScreen>
 diff --git a/res/xml/eink_display_settings.xml b/res/xml/eink_display_settings.xml
 new file mode 100644
-index 00000000000..1444673a24c
+index 00000000000..cce62c492c0
 --- /dev/null
 +++ b/res/xml/eink_display_settings.xml
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,63 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<PreferenceScreen
 +    xmlns:android="http://schemas.android.com/apk/res/android"
@@ -195,14 +224,14 @@ index 00000000000..1444673a24c
 +        android:entryValues="@array/eink_refresh_mode_values"
 +        android:defaultValue="1" />
 +
-+    <!-- Cold frontlight -->
++    <!-- Cold frontlight (display %, 0-100, matches QS slider) -->
 +    <com.android.settings.widget.SeekBarPreference
 +        android:key="eink_pref_cold"
 +        android:title="@string/eink_cold_light_title"
 +        android:summary="@string/eink_cold_light_summary"
-+        android:max="80"
++        android:max="100"
 +        settings:min="0"
-+        android:defaultValue="40" />
++        android:defaultValue="50" />
 +
 +    <!-- Warm frontlight -->
 +    <com.android.settings.widget.SeekBarPreference
@@ -234,6 +263,88 @@ index 00000000000..1444673a24c
 +        android:title="@string/eink_button_config_title"
 +        android:summary="@string/eink_button_config_summary"
 +        android:fragment="com.android.settings.display.eink.EinkButtonConfigFragment" />
++
++    <!-- Preset editor -->
++    <Preference
++        android:key="eink_pref_presets"
++        android:title="@string/eink_presets_title"
++        android:summary="@string/eink_presets_summary"
++        android:fragment="com.android.settings.display.eink.EinkPresetsFragment" />
++
++</PreferenceScreen>
+diff --git a/res/xml/eink_preset_edit.xml b/res/xml/eink_preset_edit.xml
+new file mode 100644
+index 00000000000..1dfe90d1b3d
+--- /dev/null
++++ b/res/xml/eink_preset_edit.xml
+@@ -0,0 +1,41 @@
++<?xml version="1.0" encoding="utf-8"?>
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:settings="http://schemas.android.com/apk/res-auto">
++
++    <EditTextPreference
++        android:key="eink_preset_name"
++        android:title="@string/eink_preset_name_title"
++        android:summary="%s" />
++
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_preset_cold"
++        android:title="@string/eink_preset_cold_title"
++        android:max="100"
++        settings:min="0" />
++
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_preset_warm"
++        android:title="@string/eink_preset_warm_title"
++        android:max="254"
++        settings:min="0" />
++
++    <com.android.settings.widget.SeekBarPreference
++        android:key="eink_preset_kbd"
++        android:title="@string/eink_preset_kbd_title"
++        android:max="254"
++        settings:min="0" />
++
++    <ListPreference
++        android:key="eink_preset_mode"
++        android:title="@string/eink_preset_mode_title"
++        android:summary="%s"
++        android:entries="@array/eink_refresh_mode_entries"
++        android:entryValues="@array/eink_refresh_mode_values" />
++
++    <Preference
++        android:key="eink_preset_reset"
++        android:title="@string/eink_preset_reset_title"
++        android:summary="@string/eink_preset_reset_summary" />
++
++</PreferenceScreen>
+diff --git a/res/xml/eink_presets_list.xml b/res/xml/eink_presets_list.xml
+new file mode 100644
+index 00000000000..2c4b6b4e914
+--- /dev/null
++++ b/res/xml/eink_presets_list.xml
+@@ -0,0 +1,22 @@
++<?xml version="1.0" encoding="utf-8"?>
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    android:title="@string/eink_presets_title">
++
++    <!-- One Preference per preset slot. Summary populated at runtime with current values.
++         Tapping opens EinkPresetEditFragment with the slot index in the fragment args. -->
++    <Preference android:key="eink_preset_slot_0"
++        android:fragment="com.android.settings.display.eink.EinkPresetEditFragment" />
++    <Preference android:key="eink_preset_slot_1"
++        android:fragment="com.android.settings.display.eink.EinkPresetEditFragment" />
++    <Preference android:key="eink_preset_slot_2"
++        android:fragment="com.android.settings.display.eink.EinkPresetEditFragment" />
++    <Preference android:key="eink_preset_slot_3"
++        android:fragment="com.android.settings.display.eink.EinkPresetEditFragment" />
++
++    <Preference
++        android:key="eink_presets_reset_all"
++        android:title="@string/eink_presets_reset_all_title"
++        android:summary="@string/eink_presets_reset_all_summary" />
 +
 +</PreferenceScreen>
 diff --git a/src/com/android/settings/display/eink/EinkButtonConfigFragment.java b/src/com/android/settings/display/eink/EinkButtonConfigFragment.java
@@ -339,6 +450,326 @@ index 00000000000..e64333e1fb4
 +    private void updateSummary(ListPreference pref, String value) {
 +        pref.setValue(value);
 +        pref.setSummary(pref.getEntry());
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return MetricsEvent.VIEW_UNKNOWN;
++    }
++}
+diff --git a/src/com/android/settings/display/eink/EinkPresetDefaults.java b/src/com/android/settings/display/eink/EinkPresetDefaults.java
+new file mode 100644
+index 00000000000..92a52a6b282
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkPresetDefaults.java
+@@ -0,0 +1,90 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.content.ContentResolver;
++import android.content.Context;
++import android.provider.Settings;
++
++import com.android.settings.R;
++
++/**
++ * Mirrors {@code com.android.systemui.eink.EinkPresetManager} default values and key naming.
++ * Both packages read/write the same Settings.System keys, so they always stay in sync.
++ *
++ * Cold values are display percentage (0-100); warm and kbd are 0-254 hardware units.
++ */
++final class EinkPresetDefaults {
++
++    /** {cold, warm, kbd, mode} — names come from string resources, see defaultName(). */
++    private static final int[][] DEFAULTS = {
++        /* Day     */ { 80,   0,   0, 1 },
++        /* Night   */ { 15, 120, 200, 3 },
++        /* Reading */ { 50,  40,   0, 3 },
++        /* Focus   */ { 95,   0, 100, 4 },
++    };
++
++    private EinkPresetDefaults() {}
++
++    static String key(int slot, String field) {
++        return "eink_preset_" + slot + "_" + field;
++    }
++
++    static String defaultName(Context ctx, int slot) {
++        switch (slot) {
++            case 0: return ctx.getString(R.string.eink_preset_default_name_0);
++            case 1: return ctx.getString(R.string.eink_preset_default_name_1);
++            case 2: return ctx.getString(R.string.eink_preset_default_name_2);
++            case 3: return ctx.getString(R.string.eink_preset_default_name_3);
++            default: return "Preset " + slot;
++        }
++    }
++
++    static int defaultCold(int slot) { return DEFAULTS[slot][0]; }
++    static int defaultWarm(int slot) { return DEFAULTS[slot][1]; }
++    static int defaultKbd(int slot)  { return DEFAULTS[slot][2]; }
++    static int defaultMode(int slot) { return DEFAULTS[slot][3]; }
++
++    static String getName(Context ctx, ContentResolver cr, int slot) {
++        String s = Settings.System.getString(cr, key(slot, "name"));
++        return s != null ? s : defaultName(ctx, slot);
++    }
++
++    static int getCold(ContentResolver cr, int slot) {
++        return Settings.System.getInt(cr, key(slot, "cold"), defaultCold(slot));
++    }
++
++    static int getWarm(ContentResolver cr, int slot) {
++        return Settings.System.getInt(cr, key(slot, "warm"), defaultWarm(slot));
++    }
++
++    static int getKbd(ContentResolver cr, int slot) {
++        return Settings.System.getInt(cr, key(slot, "kbd"), defaultKbd(slot));
++    }
++
++    static int getMode(ContentResolver cr, int slot) {
++        return Settings.System.getInt(cr, key(slot, "mode"), defaultMode(slot));
++    }
++
++    static void resetSlot(ContentResolver cr, int slot) {
++        Settings.System.putString(cr, key(slot, "name"), null);
++        Settings.System.putInt(cr, key(slot, "cold"), defaultCold(slot));
++        Settings.System.putInt(cr, key(slot, "warm"), defaultWarm(slot));
++        Settings.System.putInt(cr, key(slot, "kbd"),  defaultKbd(slot));
++        Settings.System.putInt(cr, key(slot, "mode"), defaultMode(slot));
++    }
++
++    /** Refresh-mode integer to short label used in summaries. */
++    static String modeLabel(int mode) {
++        switch (mode) {
++            case 1: return "Clear";
++            case 2: return "A2 (alt)";
++            case 3: return "A2";
++            case 4: return "Speed";
++            default: return Integer.toString(mode);
++        }
++    }
++}
+diff --git a/src/com/android/settings/display/eink/EinkPresetEditFragment.java b/src/com/android/settings/display/eink/EinkPresetEditFragment.java
+new file mode 100644
+index 00000000000..6f701d173ec
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkPresetEditFragment.java
+@@ -0,0 +1,127 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.app.AlertDialog;
++import android.content.ContentResolver;
++import android.os.Bundle;
++import android.provider.Settings;
++
++import androidx.preference.EditTextPreference;
++import androidx.preference.ListPreference;
++import androidx.preference.Preference;
++import com.android.settings.widget.SeekBarPreference;
++
++import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Edits a single preset slot (name, cold %, warm, kbd, refresh mode). Slot index is passed
++ * via fragment arguments under {@link #ARG_SLOT}. Each change writes immediately to
++ * Settings.System; the on-screen E-Ink Center reflects updates the next time it opens.
++ */
++public class EinkPresetEditFragment extends SettingsPreferenceFragment
++        implements Preference.OnPreferenceChangeListener {
++
++    public static final String ARG_SLOT = "eink_preset_slot";
++
++    private int mSlot;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        setPreferencesFromResource(R.xml.eink_preset_edit, rootKey);
++
++        Bundle args = getArguments();
++        mSlot = args != null ? args.getInt(ARG_SLOT, 0) : 0;
++
++        ContentResolver cr = getContext().getContentResolver();
++
++        EditTextPreference namePref = findPreference("eink_preset_name");
++        SeekBarPreference coldPref = findPreference("eink_preset_cold");
++        SeekBarPreference warmPref = findPreference("eink_preset_warm");
++        SeekBarPreference kbdPref  = findPreference("eink_preset_kbd");
++        ListPreference modePref    = findPreference("eink_preset_mode");
++        Preference resetPref       = findPreference("eink_preset_reset");
++
++        if (namePref != null) {
++            namePref.setText(EinkPresetDefaults.getName(getContext(), cr, mSlot));
++            namePref.setOnPreferenceChangeListener(this);
++        }
++        if (coldPref != null) {
++            coldPref.setProgress(EinkPresetDefaults.getCold(cr, mSlot));
++            coldPref.setOnPreferenceChangeListener(this);
++        }
++        if (warmPref != null) {
++            warmPref.setProgress(EinkPresetDefaults.getWarm(cr, mSlot));
++            warmPref.setOnPreferenceChangeListener(this);
++        }
++        if (kbdPref != null) {
++            kbdPref.setProgress(EinkPresetDefaults.getKbd(cr, mSlot));
++            kbdPref.setOnPreferenceChangeListener(this);
++        }
++        if (modePref != null) {
++            modePref.setValue(String.valueOf(EinkPresetDefaults.getMode(cr, mSlot)));
++            modePref.setOnPreferenceChangeListener(this);
++        }
++        if (resetPref != null) {
++            resetPref.setOnPreferenceClickListener(p -> { confirmReset(); return true; });
++        }
++
++        getActivity().setTitle(EinkPresetDefaults.getName(getContext(), cr, mSlot));
++    }
++
++    @Override
++    public boolean onPreferenceChange(Preference preference, Object newValue) {
++        ContentResolver cr = getContext().getContentResolver();
++        switch (preference.getKey()) {
++            case "eink_preset_name":
++                String name = (String) newValue;
++                Settings.System.putString(cr,
++                        EinkPresetDefaults.key(mSlot, "name"),
++                        name == null || name.isEmpty() ? null : name);
++                getActivity().setTitle(name == null || name.isEmpty()
++                        ? EinkPresetDefaults.defaultName(getContext(), mSlot) : name);
++                return true;
++            case "eink_preset_cold":
++                Settings.System.putInt(cr,
++                        EinkPresetDefaults.key(mSlot, "cold"), (Integer) newValue);
++                return true;
++            case "eink_preset_warm":
++                Settings.System.putInt(cr,
++                        EinkPresetDefaults.key(mSlot, "warm"), (Integer) newValue);
++                return true;
++            case "eink_preset_kbd":
++                Settings.System.putInt(cr,
++                        EinkPresetDefaults.key(mSlot, "kbd"), (Integer) newValue);
++                return true;
++            case "eink_preset_mode":
++                Settings.System.putInt(cr,
++                        EinkPresetDefaults.key(mSlot, "mode"),
++                        Integer.parseInt((String) newValue));
++                return true;
++        }
++        return false;
++    }
++
++    private void confirmReset() {
++        new AlertDialog.Builder(getContext())
++                .setTitle(R.string.eink_preset_reset_title)
++                .setMessage(R.string.eink_preset_reset_summary)
++                .setNegativeButton(android.R.string.cancel, null)
++                .setPositiveButton(android.R.string.ok, (d, w) -> {
++                    EinkPresetDefaults.resetSlot(getContext().getContentResolver(), mSlot);
++                    // Re-bind preferences with restored values.
++                    onCreatePreferences(null, null);
++                })
++                .show();
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return MetricsEvent.VIEW_UNKNOWN;
++    }
++}
+diff --git a/src/com/android/settings/display/eink/EinkPresetsFragment.java b/src/com/android/settings/display/eink/EinkPresetsFragment.java
+new file mode 100644
+index 00000000000..028bd2196ed
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkPresetsFragment.java
+@@ -0,0 +1,85 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.app.AlertDialog;
++import android.content.ContentResolver;
++import android.os.Bundle;
++import android.provider.Settings;
++
++import androidx.preference.Preference;
++
++import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Lists the four built-in e-ink presets. Each row opens {@link EinkPresetEditFragment}
++ * scoped to its slot. A "Reset all" entry restores every preset to its built-in default.
++ */
++public class EinkPresetsFragment extends SettingsPreferenceFragment {
++
++    static final int SLOT_COUNT = 4;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        setPreferencesFromResource(R.xml.eink_presets_list, rootKey);
++
++        for (int i = 0; i < SLOT_COUNT; i++) {
++            final int slot = i;
++            Preference p = findPreference("eink_preset_slot_" + slot);
++            if (p != null) {
++                p.getExtras().putInt(EinkPresetEditFragment.ARG_SLOT, slot);
++                refreshSlotSummary(p, slot);
++            }
++        }
++
++        Preference resetAll = findPreference("eink_presets_reset_all");
++        if (resetAll != null) {
++            resetAll.setOnPreferenceClickListener(p -> { confirmResetAll(); return true; });
++        }
++    }
++
++    @Override
++    public void onResume() {
++        super.onResume();
++        // Re-read after returning from the editor.
++        for (int i = 0; i < SLOT_COUNT; i++) {
++            Preference p = findPreference("eink_preset_slot_" + i);
++            if (p != null) refreshSlotSummary(p, i);
++        }
++    }
++
++    private void refreshSlotSummary(Preference p, int slot) {
++        ContentResolver cr = getContext().getContentResolver();
++        String name = EinkPresetDefaults.getName(getContext(), cr, slot);
++        int cold = EinkPresetDefaults.getCold(cr, slot);
++        int warm = EinkPresetDefaults.getWarm(cr, slot);
++        int kbd  = EinkPresetDefaults.getKbd(cr, slot);
++        int mode = EinkPresetDefaults.getMode(cr, slot);
++        p.setTitle(name);
++        p.setSummary("Cold " + cold + "% · Warm " + warm + " · Kbd " + kbd
++                + " · Mode " + EinkPresetDefaults.modeLabel(mode));
++    }
++
++    private void confirmResetAll() {
++        new AlertDialog.Builder(getContext())
++                .setTitle(R.string.eink_presets_reset_all_title)
++                .setMessage(R.string.eink_presets_reset_all_summary)
++                .setNegativeButton(android.R.string.cancel, null)
++                .setPositiveButton(android.R.string.ok, (d, w) -> {
++                    ContentResolver cr = getContext().getContentResolver();
++                    for (int i = 0; i < SLOT_COUNT; i++) EinkPresetDefaults.resetSlot(cr, i);
++                    onResume();
++                })
++                .show();
 +    }
 +
 +    @Override
