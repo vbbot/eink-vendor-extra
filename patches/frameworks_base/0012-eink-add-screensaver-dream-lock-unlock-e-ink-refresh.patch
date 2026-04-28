@@ -1,0 +1,467 @@
+From bcf752372d5eec31083e106e7100e5dcc32f1ee8 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Tue, 28 Apr 2026 18:01:28 +0200
+Subject: [PATCH] eink: add screensaver dream + lock/unlock e-ink refresh hooks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds an EinkDreamService (SystemUI-hosted DreamService) that renders a
+white background with a crescent-moon + Zzz glyph, with a user-controlled
+opacity (Settings.System.eink_screensaver_alpha, default 100). The dream
+forces a full e-ink panel refresh on entry and exit so the moon frame
+draws cleanly and is removed cleanly on wake.
+
+The dream is registered as the device-default screensaver AND the doze
+component (latter via the EInkFrameworkOverlay RRO in vendor/extra), so
+it runs during the AWAKE-to-ASLEEP transition without being torn down by
+PowerManagerService.handleSandman — non-doze dreams are not permitted in
+ASLEEP wakefulness, only doze dreams are. The dream itself never calls
+startDozing(); on e-ink the panel persists the last frame natively, so
+no low-power AOD mode is needed.
+
+EinkCenterController.start() writes Settings.Secure.SCREENSAVER_COMPONENTS
+to our component on first boot if unset (the framework-res RRO override
+of config_dreamsDefaultComponent only seeds default-component on initial
+SettingsProvider DB creation; this fixup makes the active screensaver
+deterministic on devices whose Settings DB pre-existed our build).
+
+EinkCenterController also subscribes to ACTION_USER_PRESENT and triggers
+IEinkManager.forceFullRefresh() on every keyguard dismiss, so the
+lockscreen-to-app transition does not carry ghosting from the keyguard
+frame.
+
+Files: packages/SystemUI/src/com/android/systemui/eink/screensaver/EinkDreamService.java  (new)
+  packages/SystemUI/res/layout/eink_dream.xml  (new)
+  packages/SystemUI/res/xml/eink_dream_metadata.xml  (new)
+  packages/SystemUI/res/drawable-nodpi/ic_eink_moon_zzz.png  (new)
+  packages/SystemUI/AndroidManifest.xml  (dream service entry)
+  packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+    (USER_PRESENT receiver + boot-time SCREENSAVER_COMPONENTS write)
+Change-Id: I95b2b0ce8fd132fc176901a3b84d4bf59cb3e580
+---
+ packages/SystemUI/AndroidManifest.xml         |  13 ++
+ .../res/drawable-nodpi/ic_eink_moon_zzz.png   | Bin 0 -> 8286 bytes
+ packages/SystemUI/res/layout/eink_dream.xml   |  21 +++
+ .../SystemUI/res/xml/eink_dream_metadata.xml  |   8 ++
+ .../systemui/eink/EinkCenterController.java   |  38 ++++++
+ .../eink/screensaver/EinkDreamService.java    | 124 ++++++++++++++++++
+ 6 files changed, 204 insertions(+)
+ create mode 100644 packages/SystemUI/res/drawable-nodpi/ic_eink_moon_zzz.png
+ create mode 100644 packages/SystemUI/res/layout/eink_dream.xml
+ create mode 100644 packages/SystemUI/res/xml/eink_dream_metadata.xml
+ create mode 100644 packages/SystemUI/src/com/android/systemui/eink/screensaver/EinkDreamService.java
+
+diff --git a/packages/SystemUI/AndroidManifest.xml b/packages/SystemUI/AndroidManifest.xml
+index 5cc3fbf30900..44fea591b26c 100644
+--- a/packages/SystemUI/AndroidManifest.xml
++++ b/packages/SystemUI/AndroidManifest.xml
+@@ -1204,5 +1204,18 @@
+             android:exported="true"
+             />
+ 
++        <!-- E-Ink screensaver: solid white moon-and-Zzz dream activated on every lock. -->
++        <service android:name=".eink.screensaver.EinkDreamService"
++            android:exported="true"
++            android:permission="android.permission.BIND_DREAM_SERVICE">
++            <intent-filter>
++                <action android:name="android.service.dreams.DreamService" />
++                <category android:name="android.intent.category.DEFAULT" />
++            </intent-filter>
++            <meta-data
++                android:name="android.service.dream"
++                android:resource="@xml/eink_dream_metadata" />
++        </service>
++
+     </application>
+ </manifest>
+diff --git a/packages/SystemUI/res/drawable-nodpi/ic_eink_moon_zzz.png b/packages/SystemUI/res/drawable-nodpi/ic_eink_moon_zzz.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..b905159a6844da4dd848d08cc7749716f548b6bb
+GIT binary patch
+literal 8286
+zcmbVxc|6qL_y3)FVU!G|B8;U*h*DV_LKMcHN=PX0kd_%WBE)#Bw4zCNQ4Nx{#gcV;
+zd#6$p%~;wnMQR9Ri4kUgcj)u@{qg<h`}sc1!_2woo^#K6o_o(Z_w~B$>TD~$RB<T)
+zK$>W`(+vPL{D}sV67Xv>y!|))QuDWSa{?e@Jpk160EmXDKL7~b48Wit0E9FE<jGkz
+zyUid&;;@75P9PNh<<=M6gd-RV(P<ZEP)vE{3S*bGXf^<<?Zlls_J)5P?mpM%6MF9Z
+zSlDefF>UoFO9%><uJ@L>t30`YdUrP^zO&<Rj&<0N)f-GpU%$Qb)~?$#eYkXJZ%Cz8
+zwp-N!Zc0T;dB^Yej*kze4(~v%@<6+{tEGGw+ahasDp1JpPF9=F_U<~DJ@h;4bo6M~
+zo3O3-F6Hz-ZGANznPZ!TC({1wkKv%1U*M5neUmmhS7*3@hCe#44DiGUNeC5BTy+X0
+z;R~&>aCqNKlqHS6bQ`dv?N!GBB5gxIP$Rls`2UmdeMrJ?mKV)sc6T#AvDF9u5s5rK
+zyNoZ-ILB2xy+sdaNo&`^pyLay-*E0RLZk(=XV8JDA-2>_JW;<kX}|(C7dv?uPh|ac
+zMpd$pPc$xV&2^x)dmW=P4L;40BvR<|>xs00Gk~ngG!jO}elJ*{D*=Bgq&2C13z{C+
+zCJ&H)&z3A|ijE)16xy<`LTDaGuHxb0M7^&L6L?~9iFGU{sB)$k`!mNU4NuJYaGE;G
+zIzADjV6wJ;Gm&QS_$(t3@=1uZvz{aLY9!7ehTU8HN0koKSZLv_XD?!`V)Q}#8YOh?
+z7bgBZ%h(R-QMCJ_y_E{pw*xYT_ZT&k|A?F`rGFT(5U*3O*Mh6mUJVlDH(vdt6)BH{
+zGjDNs5oz=fB}laWW2R7|WnPSiFTCLHI?_gZG}CK+mS#!ASG28dc|7A}Bz&PgDhoru
+zF?1WVcXGON(d(XF6HH;;qMB^SnYF$*nZn16xrO!LBmkAW9|mHicv*||6y{{XhXElV
+zdqf<98z5jJR!@Y(3KQ)G9BLEW=A2?i?G}Ai&L9a=^W`;Q9Kw{#Z$WGKQ!j8YKzq}-
+zt5&B%dYX!`79x58{dp&}f4QI2AHCEfi03G9c3Q*}5#f2^kC7<HcgH7$>_zi^u*dH}
+z3vuOPi;_ju>kv?5XJMoU(M@VtJSrQmvzl{%5l;aI234E$W>Iz%ea2K^k>ryML)xv)
+zIFoTguzz>YIyEBAD@eLL9SSm&jU^wToOjdc`8eP$Q&;{h=DQr@Kx{4h>Zj|ZJj9Nc
+z{D?Yk*pOc~8+K<7eFtCYl}aQ1E85ylZJzy^<p_g1PynYz^yP7ZV%C3sR2I$^JgkKh
+z6D$;-h?t(KsrhNc$>hq?@S(4s_cw+c2hV?>wAuS*`~T|bE$DM%byC18Xe6EZRGJ@0
+zkzD*8E*XySf(V!JM8!9lHN(FeUC?FDdR8>N^vH>80)a4$F0W3cNlY*0gxDMtMRtKQ
+z<ETK&7qvQHel6ramf<-;It-1WFVNH4kjjiT<nFSg(Vxv@AoVGB59=!2hjEc|o1X_E
+zj7FEmMUF696-s7=#E9i^YmqT%i@%->#B40zAE6HE&5@|C&0Z5i^&^*{C~i#iTIXDh
+z&C@6tEW+1rNEB!pW9@151d|KnFMG5Q#w>ebjRV$aJzKSy!aa)y;4IHNjY2Xrxl7!E
+zM#p+c&TYJBD9mv+UkMW;;p<jtU*aC~<+>sQ2i1n5Ne+wV;W<ReRCQdW#2ImrYk|CR
+z(Ax<S3b5d~LvFA5?VCOe07h|6L;ffR>$JchnO;*eW3ePF&F4IX_jBW4lcs{!KZ;Xh
+zOW;)Dfj@pD!heI9LLrc1N!@@Td7?kR3}VJ0<p%Y#FbSlcW%zFOn&=g)(^{abWgsfO
+z*t$*il8{@iPt~?j0-Nj>jnwj!g3iI*BMRclRpmF{We9tbtBZ<1C{-sw`XJ-Vq!r9H
+zoKn9h146BGsOZSdSzF>@%CuY0gvFIciG~&4O}$8!m{6!e986}%;;sp93n}$F_3Hb~
+z<+X{yjfM>2KaEu#vSE1Q;Klt&V-og`fc!t}!F`$4`G}ocmkGFEl!B1NO6gIr9BBq(
+zF{j;9izT9Q;i}}#d1I=#uo}dJ{UEo}RLn$<ua`WXGdgI+>7-Z^2iIai#XEbB6C<9Q
+z_jpb}N5VV>yMaivd8}Zvs`~c!Mw`hgiU))tqbb%wVGj5804r95$ol+KJWJxZA3yO@
+z)=jJ)k#_NM)~UW8??$ys^LkjG462)`uh$Gu+)-NGG22$~SKNy+jlw`E6o|AZkuNsC
+z@1BcGNt`9p+7H_z#w_o?-X)*Y7t+QDFOFiyi8+_--xdb-CPdn#W07{)fN?iJ=RsnD
+zJj~j+D_8P2_Z^$-`K3p6yQ(Yp_DJ1zVIe`g9@;7P0!h?Q9}r%cJgh-{(7l1PVLh9F
+zuB#DGJT#I1nJYLr^mXzd$mvkzY+Bzt7nAH$jVBs<iFyCquO!?P8W8~#%ihci#`;rC
+z;l)V_Sb*0{DGbZiJGHND7;~Y~FMCRV-T~97m|%UqI;_;s)1jQRpXs;D2z1-Vf$Bmd
+z&AD`RaHZE0-Fi#ZdwF3cCl-lpr-m=Ws1g^_N+Rud@N%;DOn?QuA_j^{=p21<P@sQH
+zb?yfK=(2>hz5Rhj+J2r92+`vE&HlveIc4iuO1tL2_3fXZRAM-BWoyS|7)>x=?bXLn
+z1y3(cS$KsVB2e)iC*gm^$C7+8vNPeON|Y+!hHxI=@fMY<I)w;UhaVxl1m+o7HR37o
+zBW@o<!tW>?h+Z0HhO?segSOCkR9K$%vM*&U6g}ZXIyP4@zMe7S<xrI&bmq)aBnz$0
+zcRdZXQIu*06!sQI6-)ghMTfVOaQ=x>R|2=U7K9H?=EVJ8&-(-&E<Bj9PI!v;wEZbp
+zTJypjstKnv4O$)IQ`$FaCXxD27j6`dXT2uBXz8Q$9aSO9wRa3O%JHKj`iLk^*G-Yq
+zr;F>h<GkEzDZie;$aqH}_Ht(=$repGO`)M^T-mxIHqlKc&p6lM&@8$)pt`TWY^+e1
+zSnJ^c8D9JIjqe)ln9%C|sxYAN^uoB23lZJo5Y1xNUiM1uNn(l3YhE-pSD`Bp(ZrIw
+zX7iP*3WRxI>ei$k=JoXvIUU?K+DCs2Ke?HK?wv4bjz_H$^36sFZ^p*T*mpE4UaaLr
+zj9;%6ZMz+LOFYDn|5feZ_lOci96lvJli$5}W?Z$ykHjHdG&O3tQg$fy$<^r_q>oOW
+z)jdU<DqiJm{Twou$XJ*kA~AEZn{qIz=RPa#;7jt0f7dY_7FO8ZpBc(Fyd@gXUi#CI
+z=YJSOjvzdtPk9g<JQMFl(|XET3MD8b{m)y*dPFNflzeX~;*>g*ypK9!!N_0LeP3Ex
+z(Aw8|{Yt;82a6}0Z#Da&ct<Xpt`@|O)2VnA*=T0{_R^0xda7AzQP;jCTu?<YdDafW
+ziH7}|lP0f+goF2b4^{VZwzQ<0X)K{?^eatP4_)P6*ERgPvn6siejE0!vnZ%J_}<(X
+z2hD|L=G(-obG{_R_AbOakVblYQ>*t>e#3itKDKFC7$g410h8LUQuNArfY|QOmELIh
+zmkO_O%}JpU%gdsWp%+wv`KWLrG%&*7L3(EU#ZS|slrLJNsX?#qb%lBT!#s&)vuPtY
+zla<6ZxH%;ny~&!MJ>Y(+X~rq-V`=k(I!e&dO?93}qE_#AmfGZmNzYwJ9WAi7J57=0
+zIdM4Z0^`is)`Tr=8;*rU)n)p&aMhXKmztiR*h=1t&w3cfFI8<Ve0!Zq3dAPv>?c9M
+zgLszGLB(g>{zTY(JGIYIs45vQ*`%ggO`N4-Y^wD>9ELhDufr*)T%wMOIv9!Xpsjcx
+zBgQ3O@~H;wyA4b*)PRF2SlP)E3V?M%8DyL``*u!PQM2hkTwSq-4D50PakDI}I*~=s
+zb`XTz`RfEx2(JT8WA9SmZ4@`kvp(N#d-iGuzHnWg*yft)0_2J1FalH5)}mKA(Io4G
+zHw8QFXczm|P~Sxv;BqxaTrf#^=@%%!kxq0V-TKMD=in8C{>22m=~m4{p1iF856OJT
+zSi+Uv_;n2+4k}=%PiJ-#EMJ=?!9<~$fG~Iocd}4zY!$~p+QL;`FhT0Rh%OP=2R3J|
+zi`}1Z{iJQ(A7#tFPqR^8gYQIslIK=4I9O!FK0c`MIYSO6Ec&yv5`N@S2Tahz6AJ?2
+z5`LRsk2z0whgiTyV{942FIoqe`|WcgzR-V;d7^ddpP^5YUtuHGzC|!l8Cd3o`9VD=
+zYTKGZz<Yg*ncBcv5#Sg5KzU?5qURj{gF4Ut!>$j@M=1Y3TChYJ1XL-6hY@z#7Tf*t
+z<4hS5^CJoQGdr#OITzp_Z4kvn8ADAk`L|3U-Ix0x;i-HI6`DuIhh9S%Z_JaiZCiBy
+zNQPHhQ}ej8xV}9iE3u&UOaQ?WgIk186^W=UVe~-ughDw9X5*ve+o<sTj`wrl4~M{%
+zebfXBOb)@N4OM+Hy2R|SfaeJD`BB~{QXh93gnvB6;ZQDNO^yC+m4fUvY+Hyetox#U
+z#(Q#_jUtR(5TW^OM#1l)WcXIx-9D9kZ<`zVP--B!BA<s$G6W0!ZD3_%2DS~6qBgN%
+z^@<AtT5nx2KQ6Nu)(QbsjqoM8+GX}4gql&nCkxxQPS4>F6|I5GwT-#~o8<EdfT=mx
+zcIp`kZRe)hZVq(O3HI?n(tAaFWY}{Up%xTphS`h!YYkQf3C@@wcTz<?`&981iWABO
+z+n<PleiB$A0|E<>$+jp?F-4Nd8tE_tx)Le*)|1I`x9}C-OoRcwi}+bB3WJDQhsWi<
+zz>4e}_JK?of{5cP<Q*bh&lt)8O{gnt8fE8pmFa+yEREcNyZc=QnR1Fx!ZV9I^}#G1
+z+3UB2>?WEYP=N(HEYyZElE``eqEO(Gjdi`;MTcevxDNr|T?*A+7wOEiwxiuH=|nN|
+z4Yolj{}5%sIUxs=LSOwL6!7yX)GNA8`w<7Xp>}w>3Zf+KZcYe9HtTor*XC+4QYe>N
+z_-<;%;B>`S@G}+bdPjrtRCF8)I!wUN9IR_$Oe#EW5nk63#yDKIq$yGlUuYPt45FmT
+z&1RfL7L3*|$ZUZt&D%g+3-5;jlg+r?!?UPSN9bP1HV`hMHq<Q&GXVoy!C$xpl0-7S
+zS`h<C=r^@^2zT&)cuI6}mUCML%6RPu%_xRE>KhXg1d5u3;${+RPAvQ+;rx4)F4Rc(
+z>Ij!$B(k0~q5aN@COl}?2M1#7+3I49Gk&{8BlqEmQPz})q<1#VS%web>3vH9+nca{
+zdVU*lJ88jgeQSV{Q>`v&NP`n93gP*g22Wa@IpPc%_6~gEYD0Jy*5WK%x61He!}vcS
+zLKjmgfcaw;qYUEiwh<x_oq^5uoL^{f?lz-1Hy}IMkQ^d1AQ#eKC}6lV5{9r)!Vn8&
+z@{ypb6yR$I9cU;D0pV&m%SejiLd1W0LhbYL%6KV9Duuq~K?vY2votnS<%dIEzxG{6
+z;9;rhi{i9FO9t;P;Px|NhLH+SN?{^2M8zJ{=ISFEr3<^I-}%jns1o#uQ+%6iKGj$3
+zq!Z=_y#dC=<L_SN$K6_O($ZwSVQ#YnIKW03XtrWHVfk_Mg}cM?i)`DzK=7RoY1Q`d
+zC4h5`pZ~NpV%d9RsJEsRVhW7&kf66Iph_gu)j<H^#%HTaQ05|(4_2z-)c*42RI$|!
+zXs}J?{HDkf2k&}~qCBMMv~X7IK4FzF1XA!vgW&dVkjk}C5yOh2Sz7o@h5CYxYEN6m
+z*a&xCyCLM8#vWs<x2J_N<V8L@1lKQ-<;cR$M>hD4ly>h~z7@Q<hVEb@j1`<=IM}YE
+zrMDDTtev!WpZMLI#69L8Xmg4u-)ay~>>t_#z}2w;M#D#mIthLR6s*|CL_o6qD_w|@
+zhnYm(GJdpZba#mh%Ita9tEsLP92-B+g`r^tqKq<dpGCslHci{n&g`BA<kJLd^T};w
+z<MPdL!H@K*NU$2^l5ZWfRz>W#%yALkM)&8JF^tTlT(7QTY!7#V%?uWR{cr~yPC<pC
+zZ0T`!ZW#!eJ4m3e502rOGRC-SwB&vO!stlQSGY-<j3w+Jq#>4P4_&jiJhvJZgQ_!z
+zYpn<tD72MMp`#6PR&vHN;kfb@7Mi++TPrLi_{kNF60Yo(-z&&oaML(lK`g(_0<j~K
+zW?OMq!7r`+A_?a|zK#S}PB6Z+)mK(w!>Oli>;@l%Ccnr$Az)E^>;wm<+)aa($U7*c
+z<beTni(s~yB3tN?a+74{UfWW(>w$wglRY~!PEja4HnP5#QhcUk_}z9l#W%xd^{qYG
+z*n1~=D%8N=t^}%Apme#oi6(Am#<Ok7^QW1cgy}Jf#M9*&bEGWy$YbYDb|v3FvR!|)
+zposm9Ui#6#;ho2D$#s4*^-<^UsiyQP7mKis*Ev?>PR+q#!@xY{<Bok5iMyv7KTI*D
+z*r>csrst#L9@gv*L&w`pxpfS<wg@T<&W$HgTnmScZjd&)8wX=}@#)=rZ}CmO<(Wr*
+zlsC?cvp+{RpJ_fET4aRQ)Hvh*tCRR9x+Er_V1e@(jJwsZbfts&+sZFypD-%+%XIxM
+zZkwC0w@X91M|bf?#&fw|{|=1&o~fKe(@%%k&+^Q--HKZGu;!oz+Bs)3p~(5SVT)jE
+z*SX>LNi^Nu)3G7eWB$Gp?<k7-6WX?A(7e*5Ubc|5Nxj#sIJ$i$&zS%F#HtDH*`}5E
+zMh~RY<=6ds_oZJczN73T)_eP_Y>$%DhH=|Fje~HveUjSuhb55|-G#wQ(FbykhO{lF
+z*H7P*hR?>%ol%?#IP|Nka*xW4mr)_kORnPD_{52EV|bB#GKtPJ|8zC#X8CX5J&aIB
+z$juKWh5;{jN8fgWx7mZkw|wrmhefNs%=l}59q;YspC5uhnrd4#5`St&^KCPz-}*EE
+z-sig=9koJrEV%Z0at?c);~AmHZJ+ABS6{y}7Atz2fo_n>GM%dTZZb(7KfPx9s33iC
+zeDZ5vhO$k=a*xi{oQd!<%a)MjVT;tRUq+tsdB*4WX6oG_fs|i+w~Ki%DOURKtk=1_
+za>BYlX24WCMuwPCzV4OkT#DhR&E+Z<#Lvk$wLU%G=oHgM*jgV#_nNt7Su|WB&L@zc
+zr6t5R)KDLFvkIoe_DBD6SxUG#=Zj7;401wQ+^LJ6D&C?jbMVaSBeiqq-&~J6UFgqJ
+za+-&am~-!)6iaZ9Pa5!BS}nsj`sQyCgM}TfA?h`?SIimZgDt)rsTxqT1Op6TqWn%K
+z<S#?HshVNu(#GvR3G?b|re?XW>r9kQaN(<XTRDDyIh6Yn%GPVpbQ@9EYA9+`S!q9k
+z(H`f-n8dBhQBr(~VH5xIYvXo350lpmtvF{HZhkumpB22NveK}3qC-Gh?ZT0DW2`J+
+z6~6Mln3?2fm#0t2qmwx@j$P|p)W-B%(l4H13uk8-Yg<SIt#=GY5Gqn|Y!$g}GDjzN
+z6<atTooqZBIy^alzY|rJXMNvS8Q45lF<FPRaw|J1os|xs%!B|1W-!MV=GBN{SwDZm
+z`QHVJT`lXm%Uigw`(UN}#j@23RLpCJ%`e44yK9?9;Zcn1$ekp`{hzKI^p&qM(SyoH
+zv*MY){{3sH0lM_h%ZI~0X&4^T`F1&en5#CZ*9r{$P06PS=jlBrYcd;~-=K20b$wwH
+zXf{>1$EPnFxci`kIybajb;Tbo#on!RBr57aks<RsbywEsY^Yf7>l*3+vmnauTN|tx
+z+2aUDvZaWY_i$pF<wQPp4=ezoZ;!s8Gu+Xzglq;=Ebz(1t}T>{mghSX&JTXoppJR&
+zoU!`Ig2E-0>Eq9vPH@#8TulYdfl6d6XjZ2wDzgy{?<GDmt_^VlQCTXPRN*}4%09RW
+zXOU23CEi!j;3-X>o1ZP=(qKQ>yrw8t71sISTh`R;aAN8-aBQ~WFd>d!ea!cBs|L1%
+zn-fB+JZMbAuGJn~%87%lRIvWol5!1*SbGD*e{o=F3r7R~I_&c|(|6++u=%VKwF*|)
+zjOr@agqXrrbr`iiBR_Fo3p7A3WDV~NMe^wW9wh0pWVLv&jM}g6Yz86fQ;t_NO6{0N
+z^z4Db+I`8Rf7_M7i-+elVhiiAV&=VvGevpIVEm-STUb!rtM#>BRJGgph`q;FAua%3
+zOm4Ja>J>M?fmI()KrAD@rIaP=%y2tdcBQ#d-&}$XN$BILyOMV>ULbiVYfvVrQT~36
+z3G9ZVlM~PDLTQ6!X0l!kd_1#O`X5wowmWJ%A1>RngYQvB__qLj<eImnA{wDhQspy6
+z{>tFv5GJ`Qo)}yen%uW<a3zL%rdHa-2xrAAPRLU(aQhBb_g;r3PnLH3TX@Tub|?+8
+zG>$?{w!kSCrZ-M`+h>2<1G-P4$xejxd!Nc_j}9dfn5f*y1f<j<K50X!nP8yoHW~cL
+z_otFzjBagPT{cr>s|;$6Z6qIqB9}wMs~RJkQMsQMZg@!%BjWt5#)y{%pk^48+?9CJ
+z8FM2dNdFuE(M(Y)6dN^f!PuR&gM<ANEg|2A&UGBXf_a|Sx8=`tSUcz{eEpWO{{8dq
+z$D~-WOVQ@&GvpY@*oWu|HIm^n-@<7T%uF!LT_$Qq+qVRw_rsvv{0iE9ZBfS1JY0wY
+z>=@1)5POg|Ut^?*Y6^9(u8ljD^?putJ&&$cHCa)ui`yA|=e5?07xP>-x4%=tV2BY<
+zo-6C-P$$l(5YEHqz%|v70ec;{_YPEP_>}?YJVL!s9nX5aH&aJzwvp-kk3KLom8;%>
+zv&u*^?z{JprEdb-PZ;u!aGrD3SZSY8bt>=SZmqZuMJsQNdw!XQjfg)_rA2UJA~k@s
+z25djFk-V|o0Jl@|T|i6i9LWK5<Kr8B5YcjiVc$~QmRDMH>5=NExxDSXWz>L268sfp
+z_yWNoR}~a|!3kIlGbA_tIKX1wLOBVt3R%o3h8Wzwp{4I{(~U((LOUh}+DEZ<V!1nT
+zGEu8MvaojtPl!89l)~9HZybPPdnhA1+|$zY`|c_0%tpMpuDH3QU}gC}mvaiLyKm7u
+zJ)F+g2iI)#m@oOoo=t}@zB<ueNu<^8F@qW0d3#zr3O=o+kyPBnhMKwacC_{#FF@B#
+z(t7u>!Qb3@8(KSJ>(--{c5;(@<d6e<_A<UO9*b<!>^)vQ)&7k=djVgFejO|I%2-ur
+zzr6D(2ENoB-Zevhjq6vU845mbo}cK^sqZ7wKK7A0E5@B#f*Ura3uf$T21U;qh5Sj&
+zuA$%DoO`|3;QjQ32HCv)a+LMsDeuhu7#|(BX#&2`0(<APN#(7mdyj9Imar{Sty!j*
+z@P$HmL?}_68HE%-9J$>iXvp-Xt$eH;zK*wT{QASzUr)KiKkr4-=$$abk>Av6CuZek
+z2BZ!paEGhUMAX_37M|q-mVz$IXW86R-Wkq)O77}eBi?sL@9qqtKi87Bz6oV%=pm-;
+zxJJxJCQBMNyi4CNi&Eq-CCl;r{SFY4>B}&nBX|qXo1?+diM<&s$GW3P*~r_+k>H%+
+z<Y<MBIIQ3Rwc%iua+&hKPZi8wrG_StvV|*#Bc3wdTO7hpqECvCh#8?}(209WzdNvs
+zl>z-3vtSu&7B#zP<eKk}v#7VRwR2C=9!B%6bLeuta^r7q|3>*;IW;)H#7~O1hqIh>
+z$R3FS)iJ3Ss$wb`f<To#17YE0^Z)6s_5a~T_kS%icv&bj^QbYR;DUh(eB}>_yPS8H
+JTKWC`{{V}BFV_G7
+
+literal 0
+HcmV?d00001
+
+diff --git a/packages/SystemUI/res/layout/eink_dream.xml b/packages/SystemUI/res/layout/eink_dream.xml
+new file mode 100644
+index 000000000000..2d6b573fc512
+--- /dev/null
++++ b/packages/SystemUI/res/layout/eink_dream.xml
+@@ -0,0 +1,21 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  SPDX-FileCopyrightText: 2026 @vbbot
++  SPDX-License-Identifier: Apache-2.0
++-->
++<FrameLayout
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/eink_dream_root"
++    android:layout_width="match_parent"
++    android:layout_height="match_parent"
++    android:background="#FFFFFFFF">
++
++    <ImageView
++        android:layout_width="280dp"
++        android:layout_height="280dp"
++        android:layout_gravity="center"
++        android:src="@drawable/ic_eink_moon_zzz"
++        android:contentDescription="@null"
++        android:scaleType="fitCenter" />
++
++</FrameLayout>
+diff --git a/packages/SystemUI/res/xml/eink_dream_metadata.xml b/packages/SystemUI/res/xml/eink_dream_metadata.xml
+new file mode 100644
+index 000000000000..02ef375fe7f4
+--- /dev/null
++++ b/packages/SystemUI/res/xml/eink_dream_metadata.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  SPDX-FileCopyrightText: 2026 @vbbot
++  SPDX-License-Identifier: Apache-2.0
++-->
++<dream xmlns:android="http://schemas.android.com/apk/res/android"
++       android:showClockAndComplications="false"
++       android:previewImage="@drawable/ic_eink_moon_zzz" />
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+index 8a75c49b76f2..4393d9b9e04f 100644
+--- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+@@ -114,6 +114,29 @@ public class EinkCenterController implements CoreStartable {
+     public void start() {
+         inflateOverlay();
+         registerReceiver();
++        ensureScreensaverConfigured();
++    }
++
++    /**
++     * Make sure the e-ink screensaver dream is the active screensaver component.
++     *
++     * The framework-res RRO overrides config_dreamsDefaultComponent, but that only seeds
++     * Settings.Secure.SCREENSAVER_DEFAULT_COMPONENT on first SettingsProvider DB creation.
++     * On any device whose Settings DB pre-existed our build (i.e. an upgrade rather than a
++     * data wipe), the default still points at deskclock and SCREENSAVER_COMPONENTS is null,
++     * so DreamManagerService.chooseDreamForUser falls back to the wrong component.
++     *
++     * Writing the active component here at SystemUI startup is a deterministic fix that
++     * survives Settings-DB drift. Done as a no-op if our component is already configured
++     * so the user can still pick a different screensaver from Settings if they want.
++     */
++    private void ensureScreensaverConfigured() {
++        final String want = "com.android.systemui/com.android.systemui.eink.screensaver.EinkDreamService";
++        ContentResolver cr = mContext.getContentResolver();
++        String current = Settings.Secure.getString(cr, Settings.Secure.SCREENSAVER_COMPONENTS);
++        if (current == null || current.isEmpty()) {
++            Settings.Secure.putString(cr, Settings.Secure.SCREENSAVER_COMPONENTS, want);
++        }
+     }
+ 
+     // -------------------------------------------------------------------------
+@@ -509,6 +532,14 @@ public class EinkCenterController implements CoreStartable {
+         IntentFilter filter = new IntentFilter(ACTION_EINK_GESTURE);
+         mBroadcastDispatcher.registerReceiver(mGestureReceiver, filter, mMainExecutor,
+                 UserHandle.ALL);
++
++        // Trigger a full e-ink refresh on every unlock (keyguard dismiss). The dream's
++        // own onDreamingStopped already covers the dream→keyguard transition; this
++        // covers the keyguard→app transition where the panel content otherwise carries
++        // ghosting from the lockscreen.
++        IntentFilter userPresentFilter = new IntentFilter(Intent.ACTION_USER_PRESENT);
++        mBroadcastDispatcher.registerReceiver(mUserPresentReceiver, userPresentFilter,
++                mMainExecutor, UserHandle.ALL);
+     }
+ 
+     private final BroadcastReceiver mGestureReceiver = new BroadcastReceiver() {
+@@ -527,6 +558,13 @@ public class EinkCenterController implements CoreStartable {
+         }
+     };
+ 
++    private final BroadcastReceiver mUserPresentReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            runOnEink(IEinkManager::forceFullRefresh);
++        }
++    };
++
+     // -------------------------------------------------------------------------
+     // Helpers
+     // -------------------------------------------------------------------------
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/screensaver/EinkDreamService.java b/packages/SystemUI/src/com/android/systemui/eink/screensaver/EinkDreamService.java
+new file mode 100644
+index 000000000000..2b3919ed7510
+--- /dev/null
++++ b/packages/SystemUI/src/com/android/systemui/eink/screensaver/EinkDreamService.java
+@@ -0,0 +1,124 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.systemui.eink.screensaver;
++
++import android.content.Context;
++import android.eink.IEinkManager;
++import android.os.Handler;
++import android.os.Looper;
++import android.os.RemoteException;
++import android.os.ServiceManager;
++import android.service.dreams.DreamService;
++import android.util.Log;
++import android.view.Display;
++import android.view.View;
++
++import com.android.systemui.res.R;
++
++/**
++ * E-Ink screensaver: opaque white background with a crescent-moon + Zzz glyph.
++ *
++ * Registered as the device doze component so PMS starts it on every sleep transition
++ * (power button or screen-timeout). The dream forces a full e-ink panel refresh on
++ * entry and exit so the moon frame draws cleanly and is removed cleanly on wake.
++ */
++public class EinkDreamService extends DreamService {
++
++    private static final String TAG = "EinkDreamService";
++
++    /** How long after kicking the panel refresh before we tear ourselves down. The CLEAR
++     *  cycle on this panel takes ~700–900ms; we wait long enough for the panel hardware
++     *  to finish its inversion+redraw before letting the display transition to OFF. */
++    private static final long FINISH_DELAY_MS = 1500;
++
++    private final Handler mHandler = new Handler(Looper.getMainLooper());
++    private boolean mFinishingAfterRender = false;
++
++    @Override
++    public void onAttachedToWindow() {
++        super.onAttachedToWindow();
++
++        // Dream MUST be interactive=true. Non-interactive dreams dismiss on the first input
++        // event, including the power-button key-up that follows the key-down which started
++        // the sleep transition — the dream would auto-wake within ~80ms of starting.
++        // Setting interactive=true makes the dream ignore stray inputs; PhoneWindowManager
++        // intercepts the power button at a higher layer so user wake still works correctly.
++        setInteractive(true);
++        setFullscreen(true);
++        setScreenBright(false);
++
++        setContentView(R.layout.eink_dream);
++
++        View root = findViewById(R.id.eink_dream_root);
++        if (root != null) {
++            root.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
++        }
++    }
++
++    @Override
++    public void onDreamingStarted() {
++        super.onDreamingStarted();
++
++        // PMS started us via the doze flow (canDoze=true). Without requesting a doze
++        // screen state and entering doze, PMS turns the display off — SurfaceFlinger
++        // stops compositing and our moon never reaches the framebuffer. STATE_DOZE
++        // keeps the display in a low-power on state so our content composites once;
++        // from there the e-ink panel preserves the frame natively.
++        if (canDoze()) {
++            setDozeScreenState(Display.STATE_DOZE);
++            startDozing();
++        }
++
++        // Defer the refresh until after the dream's first frame is actually composited.
++        // onDreamingStarted runs before Choreographer's next doFrame; if we kick the
++        // panel now the e-ink driver reads a still-blank framebuffer and writes white.
++        // Posting to the decor view ensures the runnable lands after at least one draw
++        // pass, so the moon is in the surface buffer when the CPLD reads it.
++        View decor = getWindow().getDecorView();
++        decor.post(this::triggerRefreshAndFinish);
++    }
++
++    private void triggerRefreshAndFinish() {
++        forceFullRefresh();
++
++        // Tear the dream down once the panel has finished its CLEAR cycle. Keeping the
++        // dream alive holds DreamManagerService.mDozeWakeLock, which blocks the kernel
++        // from reaching s2idle/mcusysoff and costs ~10× the battery. The e-ink panel
++        // only repaints when the driver is explicitly told to via forceFullRefresh —
++        // SurfaceFlinger composites after our window is gone, but those frames never
++        // reach the panel — so the moon persists naturally through real sleep without
++        // us babysitting it.
++        mHandler.postDelayed(() -> {
++            mFinishingAfterRender = true;
++            finish();
++        }, FINISH_DELAY_MS);
++    }
++
++    @Override
++    public void onDreamingStopped() {
++        // When we finish ourselves the panel already shows the moon and we don't
++        // want a redundant refresh — SurfaceFlinger has just composited a non-dream
++        // frame, and refreshing would push that (lockscreen) onto the panel. Only
++        // refresh when the user wakes the device (the keyguard ghosts the moon
++        // otherwise; the ACTION_USER_PRESENT receiver handles unlock separately).
++        if (!mFinishingAfterRender) {
++            forceFullRefresh();
++        }
++        mHandler.removeCallbacksAndMessages(null);
++        super.onDreamingStopped();
++    }
++
++    private void forceFullRefresh() {
++        IEinkManager eink = IEinkManager.Stub.asInterface(
++                ServiceManager.getService(Context.EINK_SERVICE));
++        if (eink == null) return;
++        try {
++            eink.forceFullRefresh();
++        } catch (RemoteException e) {
++            Log.w(TAG, "forceFullRefresh failed", e);
++        }
++    }
++}
+-- 
+2.43.0
+

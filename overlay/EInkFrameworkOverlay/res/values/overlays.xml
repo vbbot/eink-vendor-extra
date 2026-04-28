@@ -35,6 +35,22 @@
     <color name="system_control_highlight_light">#FF000000</color>
     <color name="list_divider_opacity_material">#4D000000</color>
 
+    <!-- E-Ink screensaver: register the SystemUI EinkDreamService as the device-default
+         screensaver. Combined with PhoneWindowManager.startedGoingToSleep starting the dream
+         on every sleep transition, this gives the device a single deterministic screensaver
+         (moon + Zzz on white) that renders before the panel sleeps. -->
+    <string name="config_dreamsDefaultComponent" translatable="false">com.android.systemui/com.android.systemui.eink.screensaver.EinkDreamService</string>
+
+    <!-- E-Ink: register our screensaver dream as the doze component. PMS only allows dreams
+         to run during ASLEEP wakefulness via the doze flow; a regular non-doze startDream
+         call during startedGoingToSleep is torn down by handleSandman within ~30ms because
+         dreams aren't allowed in ASLEEP state. By pointing config_dozeComponent at our
+         dream, PMS itself starts our dream as part of the sleep transition (canDoze=true,
+         reason='power manager request') and leaves it running until user wake. The dream
+         doesn't actually call startDozing() — the e-ink panel persists the last frame
+         natively without needing a low-power AOD mode. -->
+    <string name="config_dozeComponent" translatable="false">com.android.systemui/com.android.systemui.eink.screensaver.EinkDreamService</string>
+
     <!-- Quick Settings tile colours -->
     <color name="system_shade_active_light">#FF000000</color>
     <color name="system_shade_inactive_light">#FFE0E0E0</color>

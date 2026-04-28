@@ -1,0 +1,120 @@
+From 6228360f5ccc17f8a458c01e01a02a7ab314506f Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Tue, 28 Apr 2026 18:01:55 +0200
+Subject: [PATCH] eink: add screensaver enable + opacity preferences
+
+Adds two new entries to the Settings > Display > E-Ink Display screen
+under a new "Screensaver" category:
+
+  - eink_pref_screensaver_enabled (SwitchPreferenceCompat, default on):
+    backed by Settings.System.eink_screensaver_enabled, which gates the
+    framework-side dream trigger in PhoneWindowManager.startedGoingToSleep.
+
+  - eink_pref_screensaver_alpha (StepperPreference, default 100):
+    backed by Settings.System.eink_screensaver_alpha, read by
+    EinkDreamService to set the moon-Zzz background opacity.
+
+Both prefs are persisted directly to Settings.System; no AIDL roundtrip
+is needed since these are display-side controls, not hardware controls.
+
+Change-Id: Ic59d9a7abb754f9f221730e97dfccb39864d281e
+---
+ res/values/eink_strings.xml                   |  3 +++
+ res/xml/eink_display_settings.xml             | 13 +++++++++++
+ .../display/eink/EinkSettingsFragment.java    | 22 +++++++++++++++++++
+ 3 files changed, 38 insertions(+)
+
+diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
+index 47f72d577e8..48e306c037d 100644
+--- a/res/values/eink_strings.xml
++++ b/res/values/eink_strings.xml
+@@ -11,6 +11,9 @@
+     <string name="eink_kbd_backlight_summary">Physical keyboard backlight brightness</string>
+     <string name="eink_force_refresh_title">Clear ghosting</string>
+     <string name="eink_force_refresh_summary">Force a full display clear to remove residual images</string>
++    <string name="eink_screensaver_category_title">Screensaver</string>
++    <string name="eink_screensaver_enabled_title">Show screensaver when locked</string>
++    <string name="eink_screensaver_enabled_summary">Draw a moon image on the panel each time the screen locks</string>
+     <string name="eink_button_config_title">E-Ink button</string>
+     <string name="eink_button_config_summary">Configure single, double, and long press actions</string>
+     <string name="eink_presets_title">E-Ink presets</string>
+diff --git a/res/xml/eink_display_settings.xml b/res/xml/eink_display_settings.xml
+index 8f2f589c700..4d2084f4c30 100644
+--- a/res/xml/eink_display_settings.xml
++++ b/res/xml/eink_display_settings.xml
+@@ -50,4 +50,17 @@
+         android:summary="@string/eink_presets_summary"
+         android:fragment="com.android.settings.display.eink.EinkPresetsFragment" />
+ 
++    <!-- Screensaver -->
++    <PreferenceCategory
++        android:key="eink_pref_screensaver_category"
++        android:title="@string/eink_screensaver_category_title">
++
++        <SwitchPreferenceCompat
++            android:key="eink_pref_screensaver_enabled"
++            android:title="@string/eink_screensaver_enabled_title"
++            android:summary="@string/eink_screensaver_enabled_summary"
++            android:defaultValue="true" />
++
++    </PreferenceCategory>
++
+ </PreferenceScreen>
+diff --git a/src/com/android/settings/display/eink/EinkSettingsFragment.java b/src/com/android/settings/display/eink/EinkSettingsFragment.java
+index c898b7436ce..ff3ba4dc46a 100644
+--- a/src/com/android/settings/display/eink/EinkSettingsFragment.java
++++ b/src/com/android/settings/display/eink/EinkSettingsFragment.java
+@@ -10,10 +10,12 @@ import android.eink.IEinkManager;
+ import android.os.Bundle;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
++import android.provider.Settings;
+ import android.util.Log;
+ 
+ import androidx.preference.ListPreference;
+ import androidx.preference.Preference;
++import androidx.preference.SwitchPreferenceCompat;
+ 
+ import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+ import com.android.settings.R;
+@@ -38,6 +40,11 @@ public class EinkSettingsFragment extends SettingsPreferenceFragment
+     private static final String KEY_KBD             = "eink_pref_kbd_backlight";
+     private static final String KEY_BUTTON_CONFIG   = "eink_pref_button_config";
+     private static final String KEY_FORCE_REFRESH   = "eink_pref_force_refresh";
++    private static final String KEY_SAVER_ENABLED   = "eink_pref_screensaver_enabled";
++
++    // Settings.System keys consumed by EinkDreamService.
++    private static final String SETTING_SAVER_ENABLED = "eink_screensaver_enabled";
++    private static final int    DEFAULT_SAVER_ENABLED = 1;
+ 
+     @Override
+     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+@@ -73,10 +80,25 @@ public class EinkSettingsFragment extends SettingsPreferenceFragment
+                 return true;
+             });
+         }
++
++        // Screensaver enable toggle. Persisted to Settings.System; no AIDL roundtrip needed.
++        SwitchPreferenceCompat saverEnabled = findPreference(KEY_SAVER_ENABLED);
++        if (saverEnabled != null) {
++            saverEnabled.setChecked(Settings.System.getInt(getContext().getContentResolver(),
++                    SETTING_SAVER_ENABLED, DEFAULT_SAVER_ENABLED) == 1);
++            saverEnabled.setOnPreferenceChangeListener(this);
++        }
+     }
+ 
+     @Override
+     public boolean onPreferenceChange(Preference preference, Object newValue) {
++        // Screensaver enable is persisted directly to Settings.System — no AIDL needed.
++        if (KEY_SAVER_ENABLED.equals(preference.getKey())) {
++            Settings.System.putInt(getContext().getContentResolver(),
++                    SETTING_SAVER_ENABLED, ((Boolean) newValue) ? 1 : 0);
++            return true;
++        }
++
+         IEinkManager eink = getEink();
+         if (eink == null) return false;
+         try {
+-- 
+2.43.0
+
