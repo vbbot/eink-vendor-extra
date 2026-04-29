@@ -1,4 +1,4 @@
-From 534aa37355751afdaa347fe1b730668e90f6f19a Mon Sep 17 00:00:00 2001
+From bee5bf0b92448fbb486b81ef49e58a912e70459b Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
 Subject: [PATCH 10/13] eink: fix Settings.System writes using
@@ -7,14 +7,14 @@ Subject: [PATCH 10/13] eink: fix Settings.System writes using
 Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
  core/java/android/eink/IEinkManager.aidl      |   2 +-
- .../res/layout/eink_center_overlay.xml        | 205 +++++++----
- .../eink/EinkAutoBrightnessController.java    | 338 ++++++++++++++++++
+ .../res/layout/eink_center_overlay.xml        | 205 ++++++++----
+ .../eink/EinkAutoBrightnessController.java    | 296 +++++++++++++++++
  .../android/systemui/eink/EinkAutoCurves.java |  83 +++++
- .../systemui/eink/EinkCenterController.java   | 303 +++++++++++++---
+ .../systemui/eink/EinkCenterController.java   | 303 +++++++++++++++---
  .../com/android/systemui/eink/EinkModule.kt   |   5 +
  .../systemui/eink/EinkPresetManager.java      |  27 +-
- .../server/eink/EinkManagerService.java       | 109 ++++--
- 8 files changed, 936 insertions(+), 136 deletions(-)
+ .../server/eink/EinkManagerService.java       | 109 +++++--
+ 8 files changed, 894 insertions(+), 136 deletions(-)
  create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
  create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
 
@@ -379,10 +379,10 @@ index 0cfb0143c300..a75820f6c706 100644
          android:layout_marginBottom="8dp" />
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
 new file mode 100644
-index 000000000000..3ccbb4ed07a0
+index 000000000000..506eb6cca521
 --- /dev/null
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,296 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -399,7 +399,6 @@ index 000000000000..3ccbb4ed07a0
 +import android.hardware.SensorEventListener;
 +import android.hardware.SensorManager;
 +import android.hardware.display.DisplayManager;
-+import android.net.Uri;
 +import android.os.Handler;
 +import android.os.RemoteException;
 +import android.os.ServiceManager;
@@ -430,12 +429,13 @@ index 000000000000..3ccbb4ed07a0
 + * </ul>
 + *
 + * <h3>Manual override (suspend)</h3>
-+ * Any external write to a brightness state (E-Ink Center +/-, QS slider, preset
-+ * apply) is detected via ContentObservers on {@code screen_brightness_float},
-+ * {@code eink_frontlight_warm}, {@code eink_keyboard_backlight}. The affected
-+ * light is suspended at the lux value at the time of the manual change. Auto
-+ * resumes for that light once the smoothed lux moves &gt;= 1.5x in either
-+ * direction (entering a different ambient regime).
++ * On each sensor tick we read the live cold/warm/kbd values via the AIDL service
++ * and compare to what we last wrote. A divergence means someone else (E-Ink Center
++ * +/-, QS slider, preset apply) wrote to the hardware between our updates. We
++ * suspend that light at the current lux value and only resume once the smoothed
++ * lux moves &gt;= 1.5x in either direction (entering a different ambient regime).
++ * No Settings observers are needed — polling on the sensor cadence is plenty fast
++ * and avoids cross-package observer plumbing.
 + *
 + * <h3>Per-light off toggle</h3>
 + * If the user has explicitly toggled a light off via the E-Ink Center icon
@@ -492,73 +492,41 @@ index 000000000000..3ccbb4ed07a0
 +
 +    @Override
 +    public void start() {
-+        ContentResolver cr = mContext.getContentResolver();
-+        cr.registerContentObserver(
++        mContext.getContentResolver().registerContentObserver(
 +                Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_MODE),
 +                false, mModeObserver);
-+        // Observe writes by other components so we can detect manual changes.
-+        cr.registerContentObserver(
-+                Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_FLOAT),
-+                false, mManualObserver);
-+        cr.registerContentObserver(
-+                Settings.System.getUriFor("eink_frontlight_warm"),
-+                false, mManualObserver);
-+        cr.registerContentObserver(
-+                Settings.System.getUriFor("eink_keyboard_backlight"),
-+                false, mManualObserver);
-+
 +        syncAutoEnabled();
 +    }
 +
 +    private final ContentObserver mModeObserver = new ContentObserver(null) {
 +        @Override
-+        public void onChange(boolean selfChange, Uri uri) {
++        public void onChange(boolean selfChange) {
 +            syncAutoEnabled();
 +        }
 +    };
 +
-+    private final ContentObserver mManualObserver = new ContentObserver(null) {
-+        @Override
-+        public void onChange(boolean selfChange, Uri uri) {
-+            if (!mAutoEnabled || uri == null) return;
-+            String last = uri.getLastPathSegment();
-+            if (last == null) return;
-+            if (last.equals(Settings.System.SCREEN_BRIGHTNESS_FLOAT)) {
-+                onPossibleManualChange(Light.COLD);
-+            } else if (last.equals("eink_frontlight_warm")) {
-+                onPossibleManualChange(Light.WARM);
-+            } else if (last.equals("eink_keyboard_backlight")) {
-+                onPossibleManualChange(Light.KBD);
-+            }
-+        }
-+    };
-+
-+    private void onPossibleManualChange(Light light) {
-+        // If the externally-visible value matches our last applied value for this
-+        // light, the change came from us — ignore. Otherwise the user (E-Ink Center,
-+        // QS slider, preset) wrote it; suspend that light at the current lux.
-+        int observed;
-+        IEinkManager eink = getEink();
-+        if (eink == null) return;
++    /**
++     * Detect external writes by polling current values vs what we last applied.
++     * Called on each sensor tick — far cheaper than registering Settings observers
++     * for every brightness key (and avoids the SCREEN_BRIGHTNESS_FLOAT key which
++     * isn't actually a Settings.System constant in this AOSP).
++     */
++    private void detectExternalWrites(IEinkManager eink) {
 +        try {
-+            switch (light) {
-+                case COLD: observed = eink.getFrontlightCold(); break;
-+                case WARM: observed = eink.getFrontlightWarm(); break;
-+                case KBD:  observed = eink.getKeyboardBacklight(); break;
-+                default: return;
++            int currentCold = eink.getFrontlightCold();
++            int currentWarm = eink.getFrontlightWarm();
++            int currentKbd  = eink.getKeyboardBacklight();
++            if (mLastAppliedCold.get() >= 0 && currentCold != mLastAppliedCold.get()) {
++                mSuspendBaselineCold = mSmoothedLux;
++            }
++            if (mLastAppliedWarm.get() >= 0 && currentWarm != mLastAppliedWarm.get()) {
++                mSuspendBaselineWarm = mSmoothedLux;
++            }
++            if (mLastAppliedKbd.get()  >= 0 && currentKbd  != mLastAppliedKbd.get()) {
++                mSuspendBaselineKbd  = mSmoothedLux;
 +            }
 +        } catch (RemoteException e) {
-+            Log.w(TAG, "getFrontlight* failed during manual-change check", e);
-+            return;
-+        }
-+
-+        if (observed == lastApplied(light)) return; // it was us
-+
-+        // It was someone else. Suspend until lux changes meaningfully.
-+        switch (light) {
-+            case COLD: mSuspendBaselineCold = mSmoothedLux; break;
-+            case WARM: mSuspendBaselineWarm = mSmoothedLux; break;
-+            case KBD:  mSuspendBaselineKbd  = mSmoothedLux; break;
++            Log.w(TAG, "detectExternalWrites failed", e);
 +        }
 +    }
 +
@@ -612,8 +580,11 @@ index 000000000000..3ccbb4ed07a0
 +                    != Display.STATE_ON) {
 +                return;
 +            }
++            IEinkManager eink = getEink();
++            if (eink == null) return;
 +            updateLux(event.values[0]);
-+            maybeApply();
++            detectExternalWrites(eink);
++            maybeApply(eink);
 +        }
 +
 +        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
@@ -647,13 +618,11 @@ index 000000000000..3ccbb4ed07a0
 +        return ratio >= SUSPEND_RESUME_RATIO;
 +    }
 +
-+    private void maybeApply() {
++    private void maybeApply(IEinkManager eink) {
 +        long now = System.currentTimeMillis();
 +        if (now - mLastUpdateMs < MIN_UPDATE_INTERVAL_MS) return;
 +
 +        ContentResolver cr = mContext.getContentResolver();
-+        IEinkManager eink = getEink();
-+        if (eink == null) return;
 +
 +        int[] coldCurve = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.COLD);
 +        int[] warmCurve = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.WARM);
@@ -705,21 +674,10 @@ index 000000000000..3ccbb4ed07a0
 +        return Settings.System.getInt(cr, key, 0) == 1;
 +    }
 +
-+    private int lastApplied(Light light) {
-+        switch (light) {
-+            case COLD: return mLastAppliedCold.get();
-+            case WARM: return mLastAppliedWarm.get();
-+            case KBD:  return mLastAppliedKbd.get();
-+        }
-+        return -1;
-+    }
-+
 +    private IEinkManager getEink() {
 +        return IEinkManager.Stub.asInterface(
 +                ServiceManager.getService(Context.EINK_SERVICE));
 +    }
-+
-+    private enum Light { COLD, WARM, KBD }
 +}
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
 new file mode 100644

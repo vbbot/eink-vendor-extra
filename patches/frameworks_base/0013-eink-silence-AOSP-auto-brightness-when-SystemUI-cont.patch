@@ -1,4 +1,4 @@
-From b654d349ecc501faac8ffe52f10724fa3b45fad3 Mon Sep 17 00:00:00 2001
+From e814bb4d473c95c9794837ad67fc45ca8d1e0c2f Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Wed, 29 Apr 2026 12:58:20 +0200
 Subject: [PATCH 13/13] eink: silence AOSP auto-brightness when SystemUI
