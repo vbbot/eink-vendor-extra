@@ -1,4 +1,4 @@
-From bee5bf0b92448fbb486b81ef49e58a912e70459b Mon Sep 17 00:00:00 2001
+From 4493f55116b0eafc3faf2d977f5b2d32f1dc1771 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
 Subject: [PATCH 10/13] eink: fix Settings.System writes using
@@ -8,13 +8,13 @@ Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
  core/java/android/eink/IEinkManager.aidl      |   2 +-
  .../res/layout/eink_center_overlay.xml        | 205 ++++++++----
- .../eink/EinkAutoBrightnessController.java    | 296 +++++++++++++++++
- .../android/systemui/eink/EinkAutoCurves.java |  83 +++++
- .../systemui/eink/EinkCenterController.java   | 303 +++++++++++++++---
+ .../eink/EinkAutoBrightnessController.java    | 310 ++++++++++++++++++
+ .../android/systemui/eink/EinkAutoCurves.java |  88 +++++
+ .../systemui/eink/EinkCenterController.java   | 303 ++++++++++++++---
  .../com/android/systemui/eink/EinkModule.kt   |   5 +
  .../systemui/eink/EinkPresetManager.java      |  27 +-
- .../server/eink/EinkManagerService.java       | 109 +++++--
- 8 files changed, 894 insertions(+), 136 deletions(-)
+ .../server/eink/EinkManagerService.java       | 109 ++++--
+ 8 files changed, 913 insertions(+), 136 deletions(-)
  create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
  create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
 
@@ -379,10 +379,10 @@ index 0cfb0143c300..a75820f6c706 100644
          android:layout_marginBottom="8dp" />
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
 new file mode 100644
-index 000000000000..506eb6cca521
+index 000000000000..64e5ada6df7c
 --- /dev/null
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,310 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -447,7 +447,10 @@ index 000000000000..506eb6cca521
 +    private static final String TAG = "EinkAutoBrightness";
 +
 +    private static final int   SMOOTHING_SAMPLES   = 5;
-+    private static final int   UPDATE_THRESHOLD_PCT = 5;
++    // Threshold below which we don't bother re-writing. Cold AIDL is 0-100 (pct);
++    // warm/kbd AIDL is 0-254 (hw) — pick equivalent thresholds for each scale.
++    private static final int   THRESHOLD_COLD_PCT = 5;
++    private static final int   THRESHOLD_HW       = 13;   // ≈ 5% of 254
 +    private static final long  MIN_UPDATE_INTERVAL_MS = 20_000L;
 +    private static final float SUSPEND_RESUME_RATIO = 1.5f;
 +
@@ -462,7 +465,8 @@ index 000000000000..506eb6cca521
 +    private int mLuxRingHead = 0;
 +    private float mSmoothedLux = -1f;
 +
-+    // Last applied values per light, plus the lux at which we applied them.
++    // Last applied values per light, in the same units as the AIDL contract:
++    // cold = 0-100 (display %), warm = 0-254 (hardware), kbd = 0-254 (hardware).
 +    // -1 means "never written" — first auto tick will always apply.
 +    private final AtomicInteger mLastAppliedCold = new AtomicInteger(-1);
 +    private final AtomicInteger mLastAppliedWarm = new AtomicInteger(-1);
@@ -628,36 +632,46 @@ index 000000000000..506eb6cca521
 +        int[] warmCurve = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.WARM);
 +        int[] kbdCurve  = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.KBD);
 +
-+        int targetCold = EinkAutoCurves.interpolate(coldCurve, mSmoothedLux);
-+        int targetWarm = EinkAutoCurves.interpolate(warmCurve, mSmoothedLux);
-+        int targetKbd  = EinkAutoCurves.interpolate(kbdCurve,  mSmoothedLux);
++        // Curve outputs are 0-100 display %. Cold AIDL takes pct directly;
++        // warm/kbd AIDL want 0-254 hardware so convert there.
++        int targetColdPct = EinkAutoCurves.interpolate(coldCurve, mSmoothedLux);
++        int targetWarmPct = EinkAutoCurves.interpolate(warmCurve, mSmoothedLux);
++        int targetKbdPct  = EinkAutoCurves.interpolate(kbdCurve,  mSmoothedLux);
++        int targetWarmHw  = EinkAutoCurves.pctToHw(targetWarmPct);
++        int targetKbdHw   = EinkAutoCurves.pctToHw(targetKbdPct);
 +
 +        boolean coldOff = isUserOff(cr, "eink_cold_off") || mSuspendBaselineCold >= 0f;
 +        boolean warmOff = isUserOff(cr, "eink_warm_off") || mSuspendBaselineWarm >= 0f;
 +        boolean kbdOff  = isUserOff(cr, "eink_kbd_off")  || mSuspendBaselineKbd  >= 0f;
 +
 +        boolean coldChanged = !coldOff
-+                && exceedsThreshold(mLastAppliedCold.get(), targetCold);
++                && exceedsThreshold(mLastAppliedCold.get(), targetColdPct, THRESHOLD_COLD_PCT);
 +        boolean warmChanged = !warmOff
-+                && exceedsThreshold(mLastAppliedWarm.get(), targetWarm);
++                && exceedsThreshold(mLastAppliedWarm.get(), targetWarmHw,  THRESHOLD_HW);
 +        boolean kbdChanged  = !kbdOff
-+                && exceedsThreshold(mLastAppliedKbd.get(),  targetKbd);
++                && exceedsThreshold(mLastAppliedKbd.get(),  targetKbdHw,   THRESHOLD_HW);
 +
 +        if (!coldChanged && !warmChanged && !kbdChanged) return;
++
++        Log.d(TAG, String.format(
++                "apply: lux=%.1f → cold=%d%% warm=%d%%(hw=%d) kbd=%d%%(hw=%d) "
++                        + "[changed: cold=%b warm=%b kbd=%b]",
++                mSmoothedLux, targetColdPct, targetWarmPct, targetWarmHw,
++                targetKbdPct, targetKbdHw, coldChanged, warmChanged, kbdChanged));
 +
 +        try {
 +            // Cold + warm share an AIDL call. Only write the ones that changed,
 +            // preserving the other.
 +            if (coldChanged || warmChanged) {
-+                int writeCold = coldChanged ? targetCold : eink.getFrontlightCold();
-+                int writeWarm = warmChanged ? targetWarm : eink.getFrontlightWarm();
++                int writeCold = coldChanged ? targetColdPct : eink.getFrontlightCold();
++                int writeWarm = warmChanged ? targetWarmHw  : eink.getFrontlightWarm();
 +                eink.setFrontlight(writeCold, writeWarm);
-+                if (coldChanged) mLastAppliedCold.set(targetCold);
-+                if (warmChanged) mLastAppliedWarm.set(targetWarm);
++                if (coldChanged) mLastAppliedCold.set(targetColdPct);
++                if (warmChanged) mLastAppliedWarm.set(targetWarmHw);
 +            }
 +            if (kbdChanged) {
-+                eink.setKeyboardBacklight(targetKbd);
-+                mLastAppliedKbd.set(targetKbd);
++                eink.setKeyboardBacklight(targetKbdHw);
++                mLastAppliedKbd.set(targetKbdHw);
 +            }
 +            mLastUpdateMs = now;
 +        } catch (RemoteException e) {
@@ -665,9 +679,9 @@ index 000000000000..506eb6cca521
 +        }
 +    }
 +
-+    private static boolean exceedsThreshold(int last, int target) {
++    private static boolean exceedsThreshold(int last, int target, int threshold) {
 +        if (last < 0) return true; // first apply
-+        return Math.abs(target - last) >= UPDATE_THRESHOLD_PCT;
++        return Math.abs(target - last) >= threshold;
 +    }
 +
 +    private static boolean isUserOff(ContentResolver cr, String key) {
@@ -681,10 +695,10 @@ index 000000000000..506eb6cca521
 +}
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
 new file mode 100644
-index 000000000000..5d35d496fd6f
+index 000000000000..0f1cfd7e7869
 --- /dev/null
 +++ b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,88 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -751,6 +765,11 @@ index 000000000000..5d35d496fd6f
 +        for (int i = 0; i < LUX.length; i++) {
 +            Settings.System.putInt(cr, key(c, i), c.defaults[i]);
 +        }
++    }
++
++    /** Convert 0-100 percentage (curve output) to 0-254 hardware (warm/kbd AIDL contract). */
++    public static int pctToHw(int pct) {
++        return Math.round(Math.max(0, Math.min(100, pct)) * 254f / 100f);
 +    }
 +
 +    /** Linear interpolation: lux → value (0-100 %). */
