@@ -1,0 +1,400 @@
+From cce9f0fcdce06266ebef85679e8491b6d78f7af2 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Wed, 29 Apr 2026 12:59:26 +0200
+Subject: [PATCH 3/3] eink: add auto-brightness curve editor
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three independent piecewise-linear curves (cold / warm / keyboard)
+defined at the same eight lux breakpoints (0, 5, 30, 100, 300, 1000,
+3000, 8000). Each (curve, lux) pair persists to a Settings.System key
+that the SystemUI EinkAutoBrightnessController reads at runtime, so
+edits take effect on the next sensor tick without a service restart.
+
+UI: 'Auto-brightness curves' entry under Display → E-Ink Display.
+List page shows the three curves and a 'reset all'. Each curve opens
+an editor with eight StepperPreference rows (one per lux breakpoint),
+plus a 'reset this curve' action.
+
+Change-Id: I14086af2515070278e9afce34cdddd7a1fd4efb6
+---
+ res/values/eink_strings.xml                   | 21 ++++
+ res/xml/eink_auto_curve_edit.xml              | 41 ++++++++
+ res/xml/eink_auto_curves_list.xml             | 21 ++++
+ res/xml/eink_display_settings.xml             |  7 ++
+ .../display/eink/EinkAutoCurveDefaults.java   | 58 +++++++++++
+ .../eink/EinkAutoCurveEditFragment.java       | 95 +++++++++++++++++++
+ .../display/eink/EinkAutoCurvesFragment.java  | 67 +++++++++++++
+ 7 files changed, 310 insertions(+)
+ create mode 100644 res/xml/eink_auto_curve_edit.xml
+ create mode 100644 res/xml/eink_auto_curves_list.xml
+ create mode 100644 src/com/android/settings/display/eink/EinkAutoCurveDefaults.java
+ create mode 100644 src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java
+ create mode 100644 src/com/android/settings/display/eink/EinkAutoCurvesFragment.java
+
+diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
+index 48e306c037d..0fcb5d858db 100644
+--- a/res/values/eink_strings.xml
++++ b/res/values/eink_strings.xml
+@@ -29,6 +29,27 @@
+     <string name="eink_presets_reset_all_title">Reset all presets</string>
+     <string name="eink_presets_reset_all_summary">Restore every preset to its built-in default</string>
+ 
++    <!-- Auto-brightness curves -->
++    <string name="eink_auto_curves_title">Auto-brightness curves</string>
++    <string name="eink_auto_curves_summary">Edit cold, warm, and keyboard light values at each lux level</string>
++    <string name="eink_auto_curve_cold_title">Cold light curve</string>
++    <string name="eink_auto_curve_warm_title">Warm light curve</string>
++    <string name="eink_auto_curve_kbd_title">Keyboard backlight curve</string>
++    <string name="eink_auto_curves_reset_all_title">Reset all curves</string>
++    <string name="eink_auto_curves_reset_all_summary">Restore every curve to its built-in default</string>
++    <string name="eink_auto_curve_reset_title">Reset this curve</string>
++    <string name="eink_auto_curve_reset_summary">Restore this curve to its built-in default</string>
++
++    <!-- Lux breakpoint labels (must align with EinkAutoCurves.LUX) -->
++    <string name="eink_auto_lux_0">Dark (0 lux)</string>
++    <string name="eink_auto_lux_5">Very dim (5 lux)</string>
++    <string name="eink_auto_lux_30">Dim (30 lux)</string>
++    <string name="eink_auto_lux_100">Indoor reading (100 lux)</string>
++    <string name="eink_auto_lux_300">Indoor bright (300 lux)</string>
++    <string name="eink_auto_lux_1000">Bright (1000 lux)</string>
++    <string name="eink_auto_lux_3000">Outdoor (3000 lux)</string>
++    <string name="eink_auto_lux_8000">Sunlight (8000 lux)</string>
++
+     <!-- Default preset names (must match EinkPresetManager.DEFAULTS) -->
+     <string name="eink_preset_default_name_0">Day</string>
+     <string name="eink_preset_default_name_1">Night</string>
+diff --git a/res/xml/eink_auto_curve_edit.xml b/res/xml/eink_auto_curve_edit.xml
+new file mode 100644
+index 00000000000..0e4a1b07db9
+--- /dev/null
++++ b/res/xml/eink_auto_curve_edit.xml
+@@ -0,0 +1,41 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  Eight stepper rows, one per lux breakpoint from EinkAutoCurves.LUX.
++  Keys are derived at runtime by combining the curve's prefix (cold/warm/kbd)
++  with the lux value, e.g. eink_auto_cold_0, eink_auto_warm_300, etc.
++  EinkAutoCurveEditFragment binds them dynamically.
++-->
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_0"
++        android:title="@string/eink_auto_lux_0" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_5"
++        android:title="@string/eink_auto_lux_5" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_30"
++        android:title="@string/eink_auto_lux_30" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_100"
++        android:title="@string/eink_auto_lux_100" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_300"
++        android:title="@string/eink_auto_lux_300" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_1000"
++        android:title="@string/eink_auto_lux_1000" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_3000"
++        android:title="@string/eink_auto_lux_3000" />
++    <com.android.settings.display.eink.StepperPreference
++        android:key="eink_auto_lux_8000"
++        android:title="@string/eink_auto_lux_8000" />
++
++    <Preference
++        android:key="eink_auto_curve_reset"
++        android:title="@string/eink_auto_curve_reset_title"
++        android:summary="@string/eink_auto_curve_reset_summary" />
++
++</PreferenceScreen>
+diff --git a/res/xml/eink_auto_curves_list.xml b/res/xml/eink_auto_curves_list.xml
+new file mode 100644
+index 00000000000..a85e9e506f8
+--- /dev/null
++++ b/res/xml/eink_auto_curves_list.xml
+@@ -0,0 +1,21 @@
++<?xml version="1.0" encoding="utf-8"?>
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    android:title="@string/eink_auto_curves_title">
++
++    <Preference android:key="eink_auto_curve_cold"
++        android:title="@string/eink_auto_curve_cold_title"
++        android:fragment="com.android.settings.display.eink.EinkAutoCurveEditFragment" />
++    <Preference android:key="eink_auto_curve_warm"
++        android:title="@string/eink_auto_curve_warm_title"
++        android:fragment="com.android.settings.display.eink.EinkAutoCurveEditFragment" />
++    <Preference android:key="eink_auto_curve_kbd"
++        android:title="@string/eink_auto_curve_kbd_title"
++        android:fragment="com.android.settings.display.eink.EinkAutoCurveEditFragment" />
++
++    <Preference
++        android:key="eink_auto_curves_reset_all"
++        android:title="@string/eink_auto_curves_reset_all_title"
++        android:summary="@string/eink_auto_curves_reset_all_summary" />
++
++</PreferenceScreen>
+diff --git a/res/xml/eink_display_settings.xml b/res/xml/eink_display_settings.xml
+index 4d2084f4c30..e140d20a143 100644
+--- a/res/xml/eink_display_settings.xml
++++ b/res/xml/eink_display_settings.xml
+@@ -50,6 +50,13 @@
+         android:summary="@string/eink_presets_summary"
+         android:fragment="com.android.settings.display.eink.EinkPresetsFragment" />
+ 
++    <!-- Auto-brightness curves -->
++    <Preference
++        android:key="eink_pref_auto_curves"
++        android:title="@string/eink_auto_curves_title"
++        android:summary="@string/eink_auto_curves_summary"
++        android:fragment="com.android.settings.display.eink.EinkAutoCurvesFragment" />
++
+     <!-- Screensaver -->
+     <PreferenceCategory
+         android:key="eink_pref_screensaver_category"
+diff --git a/src/com/android/settings/display/eink/EinkAutoCurveDefaults.java b/src/com/android/settings/display/eink/EinkAutoCurveDefaults.java
+new file mode 100644
+index 00000000000..5377b07d092
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkAutoCurveDefaults.java
+@@ -0,0 +1,58 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.content.ContentResolver;
++import android.provider.Settings;
++
++/**
++ * Mirrors {@code com.android.systemui.eink.EinkAutoCurves} on the Settings side.
++ * Both packages read/write the same Settings.System keys so they stay in sync
++ * without crossing module boundaries.
++ */
++final class EinkAutoCurveDefaults {
++
++    /** Lux thresholds. Same as SystemUI's EinkAutoCurves.LUX. */
++    static final int[] LUX = {0, 5, 30, 100, 300, 1000, 3000, 8000};
++
++    static final int[] DEFAULT_COLD = {20, 30, 45, 50, 40, 15,  5,  0};
++    static final int[] DEFAULT_WARM = {70, 60, 45, 30, 15,  5,  0,  0};
++    static final int[] DEFAULT_KBD  = {60, 50, 25, 10,  5,  0,  0,  0};
++
++    enum Curve {
++        COLD("eink_auto_cold_", DEFAULT_COLD),
++        WARM("eink_auto_warm_", DEFAULT_WARM),
++        KBD ("eink_auto_kbd_",  DEFAULT_KBD);
++
++        final String prefix;
++        final int[] defaults;
++
++        Curve(String prefix, int[] defaults) {
++            this.prefix = prefix;
++            this.defaults = defaults;
++        }
++    }
++
++    private EinkAutoCurveDefaults() {}
++
++    static String key(Curve c, int luxIndex) {
++        return c.prefix + LUX[luxIndex];
++    }
++
++    static int getValue(ContentResolver cr, Curve c, int luxIndex) {
++        return Settings.System.getInt(cr, key(c, luxIndex), c.defaults[luxIndex]);
++    }
++
++    static void setValue(ContentResolver cr, Curve c, int luxIndex, int value) {
++        Settings.System.putInt(cr, key(c, luxIndex), value);
++    }
++
++    static void resetCurve(ContentResolver cr, Curve c) {
++        for (int i = 0; i < LUX.length; i++) {
++            Settings.System.putInt(cr, key(c, i), c.defaults[i]);
++        }
++    }
++}
+diff --git a/src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java b/src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java
+new file mode 100644
+index 00000000000..e70a9efcb5c
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java
+@@ -0,0 +1,95 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.app.AlertDialog;
++import android.content.ContentResolver;
++import android.os.Bundle;
++
++import androidx.preference.Preference;
++
++import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Edits a single auto-brightness curve. Eight stepper rows correspond 1:1 to
++ * {@link EinkAutoCurveDefaults#LUX}; each stepper persists its value to a
++ * {@code eink_auto_<curve>_<lux>} key in Settings.System.
++ */
++public class EinkAutoCurveEditFragment extends SettingsPreferenceFragment
++        implements Preference.OnPreferenceChangeListener {
++
++    public static final String ARG_CURVE = "eink_auto_curve";
++
++    private EinkAutoCurveDefaults.Curve mCurve;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        setPreferencesFromResource(R.xml.eink_auto_curve_edit, rootKey);
++
++        Bundle args = getArguments();
++        String curveName = args != null ? args.getString(ARG_CURVE) : null;
++        mCurve = curveName != null
++                ? EinkAutoCurveDefaults.Curve.valueOf(curveName)
++                : EinkAutoCurveDefaults.Curve.COLD;
++
++        ContentResolver cr = getContext().getContentResolver();
++
++        for (int i = 0; i < EinkAutoCurveDefaults.LUX.length; i++) {
++            String prefKey = "eink_auto_lux_" + EinkAutoCurveDefaults.LUX[i];
++            StepperPreference p = findPreference(prefKey);
++            if (p == null) continue;
++            p.setValue(EinkAutoCurveDefaults.getValue(cr, mCurve, i));
++            p.setOnPreferenceChangeListener(this);
++            p.getExtras().putInt("luxIndex", i);
++        }
++
++        Preference reset = findPreference("eink_auto_curve_reset");
++        if (reset != null) {
++            reset.setOnPreferenceClickListener(p -> { confirmReset(); return true; });
++        }
++
++        getActivity().setTitle(curveTitleResId());
++    }
++
++    @Override
++    public boolean onPreferenceChange(Preference preference, Object newValue) {
++        Bundle extras = preference.getExtras();
++        if (extras == null) return false;
++        int luxIndex = extras.getInt("luxIndex", -1);
++        if (luxIndex < 0) return false;
++        EinkAutoCurveDefaults.setValue(getContext().getContentResolver(),
++                mCurve, luxIndex, (Integer) newValue);
++        return true;
++    }
++
++    private int curveTitleResId() {
++        switch (mCurve) {
++            case COLD: return R.string.eink_auto_curve_cold_title;
++            case WARM: return R.string.eink_auto_curve_warm_title;
++            case KBD:  return R.string.eink_auto_curve_kbd_title;
++        }
++        return R.string.eink_auto_curves_title;
++    }
++
++    private void confirmReset() {
++        new AlertDialog.Builder(getContext())
++                .setTitle(R.string.eink_auto_curve_reset_title)
++                .setMessage(R.string.eink_auto_curve_reset_summary)
++                .setNegativeButton(android.R.string.cancel, null)
++                .setPositiveButton(android.R.string.ok, (d, w) -> {
++                    EinkAutoCurveDefaults.resetCurve(getContext().getContentResolver(), mCurve);
++                    onCreatePreferences(null, null);
++                })
++                .show();
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return MetricsEvent.VIEW_UNKNOWN;
++    }
++}
+diff --git a/src/com/android/settings/display/eink/EinkAutoCurvesFragment.java b/src/com/android/settings/display/eink/EinkAutoCurvesFragment.java
+new file mode 100644
+index 00000000000..af4d8cc3a39
+--- /dev/null
++++ b/src/com/android/settings/display/eink/EinkAutoCurvesFragment.java
+@@ -0,0 +1,67 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display.eink;
++
++import android.app.AlertDialog;
++import android.os.Bundle;
++
++import androidx.preference.Preference;
++
++import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Lists the three auto-brightness curves (cold, warm, keyboard). Each row opens
++ * {@link EinkAutoCurveEditFragment} with a curve-specific argument. A "Reset all"
++ * entry restores every curve to its built-in defaults.
++ */
++public class EinkAutoCurvesFragment extends SettingsPreferenceFragment {
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        setPreferencesFromResource(R.xml.eink_auto_curves_list, rootKey);
++
++        Preference cold = findPreference("eink_auto_curve_cold");
++        if (cold != null) {
++            cold.getExtras().putString(EinkAutoCurveEditFragment.ARG_CURVE,
++                    EinkAutoCurveDefaults.Curve.COLD.name());
++        }
++        Preference warm = findPreference("eink_auto_curve_warm");
++        if (warm != null) {
++            warm.getExtras().putString(EinkAutoCurveEditFragment.ARG_CURVE,
++                    EinkAutoCurveDefaults.Curve.WARM.name());
++        }
++        Preference kbd = findPreference("eink_auto_curve_kbd");
++        if (kbd != null) {
++            kbd.getExtras().putString(EinkAutoCurveEditFragment.ARG_CURVE,
++                    EinkAutoCurveDefaults.Curve.KBD.name());
++        }
++
++        Preference resetAll = findPreference("eink_auto_curves_reset_all");
++        if (resetAll != null) {
++            resetAll.setOnPreferenceClickListener(p -> { confirmResetAll(); return true; });
++        }
++    }
++
++    private void confirmResetAll() {
++        new AlertDialog.Builder(getContext())
++                .setTitle(R.string.eink_auto_curves_reset_all_title)
++                .setMessage(R.string.eink_auto_curves_reset_all_summary)
++                .setNegativeButton(android.R.string.cancel, null)
++                .setPositiveButton(android.R.string.ok, (d, w) -> {
++                    for (EinkAutoCurveDefaults.Curve c : EinkAutoCurveDefaults.Curve.values()) {
++                        EinkAutoCurveDefaults.resetCurve(getContext().getContentResolver(), c);
++                    }
++                })
++                .show();
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return MetricsEvent.VIEW_UNKNOWN;
++    }
++}
+-- 
+2.43.0
+

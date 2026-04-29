@@ -1,8 +1,8 @@
-From 3a87e2dd56601558fe8b2d4d6f954623a690c9c9 Mon Sep 17 00:00:00 2001
+From 6041c0df333052e57072b8b52bd50920e579612c Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Tue, 28 Apr 2026 13:32:32 +0200
-Subject: [PATCH] display: use device brightness range for HBM controller, not
- PowerManager.BRIGHTNESS_MAX
+Subject: [PATCH 11/13] display: use device brightness range for HBM
+ controller, not PowerManager.BRIGHTNESS_MAX
 
 When HighBrightnessModeController is constructed with the global
 PowerManager.BRIGHTNESS_MIN/MAX (0.0/1.0), BrightnessRangeController

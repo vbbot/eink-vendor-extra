@@ -4,6 +4,12 @@ PRODUCT_PACKAGES += \
 
 PRODUCT_PRIVATE_SEPOLICY_DIRS += vendor/eink/sepolicy
 
+# E-ink: SystemUI's EinkAutoBrightnessController owns auto-brightness with custom
+# inverted curves; AOSP's auto-brightness is silenced in DisplayPowerController
+# when this read-only property is set.
+PRODUCT_PRODUCT_PROPERTIES += \
+    ro.eink.auto_owns_brightness=true
+
 PRODUCT_COPY_FILES += \
     vendor/extra/product/mp_keyboard/aw9523b-key.idc:$(TARGET_COPY_OUT_SYSTEM)/usr/idc/aw9523b-key.idc \
     vendor/extra/product/mp_keyboard/aw9523b-key.kl:$(TARGET_COPY_OUT_SYSTEM)/usr/keylayout/aw9523b-key.kl \

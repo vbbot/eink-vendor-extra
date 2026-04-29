@@ -1,0 +1,52 @@
+From b654d349ecc501faac8ffe52f10724fa3b45fad3 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Wed, 29 Apr 2026 12:58:20 +0200
+Subject: [PATCH 13/13] eink: silence AOSP auto-brightness when SystemUI
+ controller owns it
+
+EinkAutoBrightnessController in SystemUI drives cold/warm/keyboard from
+inverted curves keyed off the ambient light sensor. AOSP's own auto-
+brightness path would also try to write screen_brightness_float on every
+sensor tick using a curve that goes the wrong direction for e-ink.
+
+Gate the existing auto-brightness apply in DisplayPowerController on the
+read-only system property ro.eink.auto_owns_brightness (set true in our
+product makefile). When the property is true and brightness mode is
+AUTOMATIC, AOSP's automatic strategy is short-circuited and our SystemUI
+controller is the sole driver.
+
+Change-Id: I7f46c29dcb6f36b39d0cbb01928e2b932c485bfb
+---
+ .../android/server/display/DisplayPowerController.java   | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/services/core/java/com/android/server/display/DisplayPowerController.java b/services/core/java/com/android/server/display/DisplayPowerController.java
+index e913ddbf50d0..c12357aa4d0a 100644
+--- a/services/core/java/com/android/server/display/DisplayPowerController.java
++++ b/services/core/java/com/android/server/display/DisplayPowerController.java
+@@ -53,6 +53,7 @@ import android.os.HandlerExecutor;
+ import android.os.IBinder;
+ import android.os.Looper;
+ import android.os.Message;
++import android.os.SystemProperties;
+ import android.os.PowerManager;
+ import android.os.RemoteException;
+ import android.os.SystemClock;
+@@ -1507,7 +1508,13 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
+             // AutomaticBrightnessStrategy has higher priority than OffloadBrightnessStrategy
+             if (Float.isNaN(brightnessState)
+                     || mBrightnessReasonTemp.getReason() == BrightnessReason.REASON_OFFLOAD) {
+-                if (mAutomaticBrightnessStrategy.isAutoBrightnessEnabled()) {
++                // E-ink: SystemUI's EinkAutoBrightnessController drives cold/warm/keyboard
++                // from custom inverted curves. Skip AOSP's auto path so the two systems
++                // don't both try to write screen_brightness_float on every sensor tick.
++                final boolean einkAutoOwnsBrightness =
++                        SystemProperties.getBoolean("ro.eink.auto_owns_brightness", false);
++                if (mAutomaticBrightnessStrategy.isAutoBrightnessEnabled()
++                        && !einkAutoOwnsBrightness) {
+                     brightnessState = mAutomaticBrightnessStrategy.getAutomaticScreenBrightness(
+                             mTempBrightnessEvent);
+                     if (BrightnessUtils.isValidBrightnessValue(brightnessState)
+-- 
+2.43.0
+

@@ -1,7 +1,7 @@
 From 6228360f5ccc17f8a458c01e01a02a7ab314506f Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Tue, 28 Apr 2026 18:01:55 +0200
-Subject: [PATCH] eink: add screensaver enable + opacity preferences
+Subject: [PATCH 2/3] eink: add screensaver enable + opacity preferences
 
 Adds two new entries to the Settings > Display > E-Ink Display screen
 under a new "Screensaver" category:

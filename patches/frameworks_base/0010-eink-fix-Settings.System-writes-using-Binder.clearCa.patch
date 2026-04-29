@@ -1,17 +1,22 @@
-From 3c9c5ed91fcc0db3d47e12dde67325037c223fde Mon Sep 17 00:00:00 2001
+From 534aa37355751afdaa347fe1b730668e90f6f19a Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Mon, 27 Apr 2026 17:49:39 +0200
-Subject: [PATCH] eink: fix Settings.System writes using
+Subject: [PATCH 10/13] eink: fix Settings.System writes using
  Binder.clearCallingIdentity
 
 Change-Id: I36df3465fe2b08ee200a95ea739f83e3e180e135
 ---
  core/java/android/eink/IEinkManager.aidl      |   2 +-
- .../res/layout/eink_center_overlay.xml        | 205 ++++++++----
- .../systemui/eink/EinkCenterController.java   | 303 +++++++++++++++---
+ .../res/layout/eink_center_overlay.xml        | 205 +++++++----
+ .../eink/EinkAutoBrightnessController.java    | 338 ++++++++++++++++++
+ .../android/systemui/eink/EinkAutoCurves.java |  83 +++++
+ .../systemui/eink/EinkCenterController.java   | 303 +++++++++++++---
+ .../com/android/systemui/eink/EinkModule.kt   |   5 +
  .../systemui/eink/EinkPresetManager.java      |  27 +-
- .../server/eink/EinkManagerService.java       | 109 +++++--
- 5 files changed, 510 insertions(+), 136 deletions(-)
+ .../server/eink/EinkManagerService.java       | 109 ++++--
+ 8 files changed, 936 insertions(+), 136 deletions(-)
+ create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
+ create mode 100644 packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
 
 diff --git a/core/java/android/eink/IEinkManager.aidl b/core/java/android/eink/IEinkManager.aidl
 index ab0b958e6122..649792ba84fb 100644
@@ -372,6 +377,439 @@ index 0cfb0143c300..a75820f6c706 100644
          android:textSize="11sp"
          android:letterSpacing="0.08"
          android:layout_marginBottom="8dp" />
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
+new file mode 100644
+index 000000000000..3ccbb4ed07a0
+--- /dev/null
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoBrightnessController.java
+@@ -0,0 +1,338 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.systemui.eink;
++
++import android.content.ContentResolver;
++import android.content.Context;
++import android.database.ContentObserver;
++import android.eink.IEinkManager;
++import android.hardware.Sensor;
++import android.hardware.SensorEvent;
++import android.hardware.SensorEventListener;
++import android.hardware.SensorManager;
++import android.hardware.display.DisplayManager;
++import android.net.Uri;
++import android.os.Handler;
++import android.os.RemoteException;
++import android.os.ServiceManager;
++import android.provider.Settings;
++import android.util.Log;
++import android.view.Display;
++
++import com.android.systemui.CoreStartable;
++import com.android.systemui.dagger.SysUISingleton;
++import com.android.systemui.dagger.qualifiers.Main;
++
++import java.util.concurrent.atomic.AtomicInteger;
++
++import javax.inject.Inject;
++
++/**
++ * Drives cold / warm / keyboard frontlights from the ambient-light sensor when
++ * {@link Settings.System#SCREEN_BRIGHTNESS_MODE} is {@code AUTOMATIC}.
++ * AOSP's own auto-brightness path is silenced in {@code DisplayPowerController}
++ * via {@code ro.eink.auto_owns_brightness=true} so the two systems don't race.
++ *
++ * <h3>Stability</h3>
++ * <ul>
++ *   <li>Lux is smoothed with a moving average over the last 5 samples.</li>
++ *   <li>A new value is only written if the smoothed lux puts cold/warm/kbd into
++ *       a category {@code &gt;= 5 percentage points} away from what we last wrote.</li>
++ *   <li>At most one update every 20 seconds.</li>
++ * </ul>
++ *
++ * <h3>Manual override (suspend)</h3>
++ * Any external write to a brightness state (E-Ink Center +/-, QS slider, preset
++ * apply) is detected via ContentObservers on {@code screen_brightness_float},
++ * {@code eink_frontlight_warm}, {@code eink_keyboard_backlight}. The affected
++ * light is suspended at the lux value at the time of the manual change. Auto
++ * resumes for that light once the smoothed lux moves &gt;= 1.5x in either
++ * direction (entering a different ambient regime).
++ *
++ * <h3>Per-light off toggle</h3>
++ * If the user has explicitly toggled a light off via the E-Ink Center icon
++ * ({@code eink_<light>_off=1}), auto skips that light entirely.
++ */
++@SysUISingleton
++public class EinkAutoBrightnessController implements CoreStartable {
++
++    private static final String TAG = "EinkAutoBrightness";
++
++    private static final int   SMOOTHING_SAMPLES   = 5;
++    private static final int   UPDATE_THRESHOLD_PCT = 5;
++    private static final long  MIN_UPDATE_INTERVAL_MS = 20_000L;
++    private static final float SUSPEND_RESUME_RATIO = 1.5f;
++
++    private final Context mContext;
++    private final SensorManager mSensorManager;
++    private final DisplayManager mDisplayManager;
++    private final Handler mMainHandler;
++
++    // Smoothing ring buffer.
++    private final float[] mLuxRing = new float[SMOOTHING_SAMPLES];
++    private int mLuxRingFill = 0;
++    private int mLuxRingHead = 0;
++    private float mSmoothedLux = -1f;
++
++    // Last applied values per light, plus the lux at which we applied them.
++    // -1 means "never written" — first auto tick will always apply.
++    private final AtomicInteger mLastAppliedCold = new AtomicInteger(-1);
++    private final AtomicInteger mLastAppliedWarm = new AtomicInteger(-1);
++    private final AtomicInteger mLastAppliedKbd  = new AtomicInteger(-1);
++    private long mLastUpdateMs = 0L;
++
++    // Suspend state per light. -1 means not suspended; otherwise the lux value
++    // at which suspension started.
++    private float mSuspendBaselineCold = -1f;
++    private float mSuspendBaselineWarm = -1f;
++    private float mSuspendBaselineKbd  = -1f;
++
++    private boolean mSensorRegistered = false;
++    private boolean mAutoEnabled = false;
++
++    @Inject
++    public EinkAutoBrightnessController(
++            Context context,
++            SensorManager sensorManager,
++            DisplayManager displayManager,
++            @Main Handler mainHandler) {
++        mContext = context;
++        mSensorManager = sensorManager;
++        mDisplayManager = displayManager;
++        mMainHandler = mainHandler;
++    }
++
++    @Override
++    public void start() {
++        ContentResolver cr = mContext.getContentResolver();
++        cr.registerContentObserver(
++                Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_MODE),
++                false, mModeObserver);
++        // Observe writes by other components so we can detect manual changes.
++        cr.registerContentObserver(
++                Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_FLOAT),
++                false, mManualObserver);
++        cr.registerContentObserver(
++                Settings.System.getUriFor("eink_frontlight_warm"),
++                false, mManualObserver);
++        cr.registerContentObserver(
++                Settings.System.getUriFor("eink_keyboard_backlight"),
++                false, mManualObserver);
++
++        syncAutoEnabled();
++    }
++
++    private final ContentObserver mModeObserver = new ContentObserver(null) {
++        @Override
++        public void onChange(boolean selfChange, Uri uri) {
++            syncAutoEnabled();
++        }
++    };
++
++    private final ContentObserver mManualObserver = new ContentObserver(null) {
++        @Override
++        public void onChange(boolean selfChange, Uri uri) {
++            if (!mAutoEnabled || uri == null) return;
++            String last = uri.getLastPathSegment();
++            if (last == null) return;
++            if (last.equals(Settings.System.SCREEN_BRIGHTNESS_FLOAT)) {
++                onPossibleManualChange(Light.COLD);
++            } else if (last.equals("eink_frontlight_warm")) {
++                onPossibleManualChange(Light.WARM);
++            } else if (last.equals("eink_keyboard_backlight")) {
++                onPossibleManualChange(Light.KBD);
++            }
++        }
++    };
++
++    private void onPossibleManualChange(Light light) {
++        // If the externally-visible value matches our last applied value for this
++        // light, the change came from us — ignore. Otherwise the user (E-Ink Center,
++        // QS slider, preset) wrote it; suspend that light at the current lux.
++        int observed;
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++        try {
++            switch (light) {
++                case COLD: observed = eink.getFrontlightCold(); break;
++                case WARM: observed = eink.getFrontlightWarm(); break;
++                case KBD:  observed = eink.getKeyboardBacklight(); break;
++                default: return;
++            }
++        } catch (RemoteException e) {
++            Log.w(TAG, "getFrontlight* failed during manual-change check", e);
++            return;
++        }
++
++        if (observed == lastApplied(light)) return; // it was us
++
++        // It was someone else. Suspend until lux changes meaningfully.
++        switch (light) {
++            case COLD: mSuspendBaselineCold = mSmoothedLux; break;
++            case WARM: mSuspendBaselineWarm = mSmoothedLux; break;
++            case KBD:  mSuspendBaselineKbd  = mSmoothedLux; break;
++        }
++    }
++
++    private void syncAutoEnabled() {
++        ContentResolver cr = mContext.getContentResolver();
++        int mode = Settings.System.getInt(cr,
++                Settings.System.SCREEN_BRIGHTNESS_MODE,
++                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
++        boolean enabled = mode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC;
++        if (enabled == mAutoEnabled) return;
++        mAutoEnabled = enabled;
++        if (enabled) {
++            registerSensor();
++        } else {
++            unregisterSensor();
++            // Reset state so re-enabling later starts fresh.
++            mLuxRingFill = 0;
++            mLuxRingHead = 0;
++            mSmoothedLux = -1f;
++            mSuspendBaselineCold = mSuspendBaselineWarm = mSuspendBaselineKbd = -1f;
++            mLastAppliedCold.set(-1);
++            mLastAppliedWarm.set(-1);
++            mLastAppliedKbd.set(-1);
++            mLastUpdateMs = 0L;
++        }
++    }
++
++    private void registerSensor() {
++        if (mSensorRegistered) return;
++        Sensor light = mSensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
++        if (light == null) {
++            Log.w(TAG, "No TYPE_LIGHT sensor on this device — auto-brightness disabled.");
++            return;
++        }
++        mSensorManager.registerListener(mSensorListener, light,
++                SensorManager.SENSOR_DELAY_NORMAL, mMainHandler);
++        mSensorRegistered = true;
++    }
++
++    private void unregisterSensor() {
++        if (!mSensorRegistered) return;
++        mSensorManager.unregisterListener(mSensorListener);
++        mSensorRegistered = false;
++    }
++
++    private final SensorEventListener mSensorListener = new SensorEventListener() {
++        @Override
++        public void onSensorChanged(SensorEvent event) {
++            if (!mAutoEnabled) return;
++            if (mDisplayManager.getDisplay(Display.DEFAULT_DISPLAY).getState()
++                    != Display.STATE_ON) {
++                return;
++            }
++            updateLux(event.values[0]);
++            maybeApply();
++        }
++
++        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
++    };
++
++    private void updateLux(float rawLux) {
++        mLuxRing[mLuxRingHead] = rawLux;
++        mLuxRingHead = (mLuxRingHead + 1) % SMOOTHING_SAMPLES;
++        if (mLuxRingFill < SMOOTHING_SAMPLES) mLuxRingFill++;
++
++        float sum = 0f;
++        for (int i = 0; i < mLuxRingFill; i++) sum += mLuxRing[i];
++        mSmoothedLux = sum / mLuxRingFill;
++
++        // Resume any suspended lights if the user has moved into a new ambient regime.
++        if (mSuspendBaselineCold >= 0f && resumeIfChanged(mSuspendBaselineCold)) {
++            mSuspendBaselineCold = -1f;
++        }
++        if (mSuspendBaselineWarm >= 0f && resumeIfChanged(mSuspendBaselineWarm)) {
++            mSuspendBaselineWarm = -1f;
++        }
++        if (mSuspendBaselineKbd >= 0f && resumeIfChanged(mSuspendBaselineKbd)) {
++            mSuspendBaselineKbd = -1f;
++        }
++    }
++
++    private boolean resumeIfChanged(float baseline) {
++        float bl = Math.max(1f, baseline);
++        float cur = Math.max(1f, mSmoothedLux);
++        float ratio = Math.max(cur / bl, bl / cur);
++        return ratio >= SUSPEND_RESUME_RATIO;
++    }
++
++    private void maybeApply() {
++        long now = System.currentTimeMillis();
++        if (now - mLastUpdateMs < MIN_UPDATE_INTERVAL_MS) return;
++
++        ContentResolver cr = mContext.getContentResolver();
++        IEinkManager eink = getEink();
++        if (eink == null) return;
++
++        int[] coldCurve = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.COLD);
++        int[] warmCurve = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.WARM);
++        int[] kbdCurve  = EinkAutoCurves.readCurve(cr, EinkAutoCurves.Curve.KBD);
++
++        int targetCold = EinkAutoCurves.interpolate(coldCurve, mSmoothedLux);
++        int targetWarm = EinkAutoCurves.interpolate(warmCurve, mSmoothedLux);
++        int targetKbd  = EinkAutoCurves.interpolate(kbdCurve,  mSmoothedLux);
++
++        boolean coldOff = isUserOff(cr, "eink_cold_off") || mSuspendBaselineCold >= 0f;
++        boolean warmOff = isUserOff(cr, "eink_warm_off") || mSuspendBaselineWarm >= 0f;
++        boolean kbdOff  = isUserOff(cr, "eink_kbd_off")  || mSuspendBaselineKbd  >= 0f;
++
++        boolean coldChanged = !coldOff
++                && exceedsThreshold(mLastAppliedCold.get(), targetCold);
++        boolean warmChanged = !warmOff
++                && exceedsThreshold(mLastAppliedWarm.get(), targetWarm);
++        boolean kbdChanged  = !kbdOff
++                && exceedsThreshold(mLastAppliedKbd.get(),  targetKbd);
++
++        if (!coldChanged && !warmChanged && !kbdChanged) return;
++
++        try {
++            // Cold + warm share an AIDL call. Only write the ones that changed,
++            // preserving the other.
++            if (coldChanged || warmChanged) {
++                int writeCold = coldChanged ? targetCold : eink.getFrontlightCold();
++                int writeWarm = warmChanged ? targetWarm : eink.getFrontlightWarm();
++                eink.setFrontlight(writeCold, writeWarm);
++                if (coldChanged) mLastAppliedCold.set(targetCold);
++                if (warmChanged) mLastAppliedWarm.set(targetWarm);
++            }
++            if (kbdChanged) {
++                eink.setKeyboardBacklight(targetKbd);
++                mLastAppliedKbd.set(targetKbd);
++            }
++            mLastUpdateMs = now;
++        } catch (RemoteException e) {
++            Log.e(TAG, "Auto-brightness apply failed", e);
++        }
++    }
++
++    private static boolean exceedsThreshold(int last, int target) {
++        if (last < 0) return true; // first apply
++        return Math.abs(target - last) >= UPDATE_THRESHOLD_PCT;
++    }
++
++    private static boolean isUserOff(ContentResolver cr, String key) {
++        return Settings.System.getInt(cr, key, 0) == 1;
++    }
++
++    private int lastApplied(Light light) {
++        switch (light) {
++            case COLD: return mLastAppliedCold.get();
++            case WARM: return mLastAppliedWarm.get();
++            case KBD:  return mLastAppliedKbd.get();
++        }
++        return -1;
++    }
++
++    private IEinkManager getEink() {
++        return IEinkManager.Stub.asInterface(
++                ServiceManager.getService(Context.EINK_SERVICE));
++    }
++
++    private enum Light { COLD, WARM, KBD }
++}
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
+new file mode 100644
+index 000000000000..5d35d496fd6f
+--- /dev/null
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkAutoCurves.java
+@@ -0,0 +1,83 @@
++/*
++ * SPDX-FileCopyrightText: 2026 @vbbot
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.systemui.eink;
++
++import android.content.ContentResolver;
++import android.provider.Settings;
++
++/**
++ * Auto-brightness curves and breakpoint constants. Three independent curves
++ * (cold, warm, keyboard) defined at the same eight lux breakpoints, each value
++ * stored separately in Settings.System so the editor can wire one
++ * {@code StepperPreference} per breakpoint.
++ *
++ * <p>Curves go in the *opposite* direction from a normal phone: as ambient lux
++ * increases, the e-ink display reflects more of it and frontlights are needed
++ * less. Cold peaks around 100 lux (typical indoor reading); warm decreases
++ * monotonically to favour amber light at low ambient (eye comfort + circadian);
++ * keyboard tracks ambient with a sharp falloff.
++ */
++public final class EinkAutoCurves {
++
++    private EinkAutoCurves() {}
++
++    /** Lux thresholds. Same for all three curves so the editor stays uniform. */
++    public static final int[] LUX = {0, 5, 30, 100, 300, 1000, 3000, 8000};
++
++    public static final int[] DEFAULT_COLD = {20, 30, 45, 50, 40, 15,  5,  0};
++    public static final int[] DEFAULT_WARM = {70, 60, 45, 30, 15,  5,  0,  0};
++    public static final int[] DEFAULT_KBD  = {60, 50, 25, 10,  5,  0,  0,  0};
++
++    public enum Curve {
++        COLD("eink_auto_cold_", DEFAULT_COLD),
++        WARM("eink_auto_warm_", DEFAULT_WARM),
++        KBD ("eink_auto_kbd_",  DEFAULT_KBD);
++
++        public final String prefix;
++        public final int[] defaults;
++
++        Curve(String prefix, int[] defaults) {
++            this.prefix = prefix;
++            this.defaults = defaults;
++        }
++    }
++
++    /** Settings.System key for one (curve, lux-index) pair. */
++    public static String key(Curve c, int luxIndex) {
++        return c.prefix + LUX[luxIndex];
++    }
++
++    /** Read all eight values for a curve, falling back to defaults. */
++    public static int[] readCurve(ContentResolver cr, Curve c) {
++        int[] values = new int[LUX.length];
++        for (int i = 0; i < LUX.length; i++) {
++            values[i] = Settings.System.getInt(cr, key(c, i), c.defaults[i]);
++        }
++        return values;
++    }
++
++    /** Reset one curve to its built-in defaults. */
++    public static void resetCurve(ContentResolver cr, Curve c) {
++        for (int i = 0; i < LUX.length; i++) {
++            Settings.System.putInt(cr, key(c, i), c.defaults[i]);
++        }
++    }
++
++    /** Linear interpolation: lux → value (0-100 %). */
++    public static int interpolate(int[] curve, float lux) {
++        if (lux <= LUX[0]) return curve[0];
++        if (lux >= LUX[LUX.length - 1]) return curve[LUX.length - 1];
++        for (int i = 0; i < LUX.length - 1; i++) {
++            float lo = LUX[i];
++            float hi = LUX[i + 1];
++            if (lux >= lo && lux <= hi) {
++                float t = (lux - lo) / (hi - lo);
++                return Math.round(curve[i] + t * (curve[i + 1] - curve[i]));
++            }
++        }
++        return curve[LUX.length - 1];
++    }
++}
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
 index 38ad47bc7ef2..8a75c49b76f2 100644
 --- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
@@ -797,6 +1235,20 @@ index 38ad47bc7ef2..8a75c49b76f2 100644
      // -------------------------------------------------------------------------
      // Broadcast
      // -------------------------------------------------------------------------
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt b/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt
+index 4cd1558c39a3..015d15a5e4a6 100644
+--- a/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkModule.kt
+@@ -17,4 +17,9 @@ interface EinkModule {
+     @IntoMap
+     @ClassKey(EinkCenterController::class)
+     fun bindEinkCenterController(impl: EinkCenterController): CoreStartable
++
++    @Binds
++    @IntoMap
++    @ClassKey(EinkAutoBrightnessController::class)
++    fun bindEinkAutoBrightnessController(impl: EinkAutoBrightnessController): CoreStartable
+ }
 diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java b/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
 index 7534297e0681..523ce2e83e7f 100644
 --- a/packages/SystemUI/src/com/android/systemui/eink/EinkPresetManager.java
