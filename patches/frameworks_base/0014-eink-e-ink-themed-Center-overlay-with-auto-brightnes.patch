@@ -1,0 +1,1374 @@
+From e946d8b1f90ddcdbc3a5a3df5d5f57bc48f5476b Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Wed, 29 Apr 2026 15:53:55 +0200
+Subject: [PATCH] eink: e-ink themed Center overlay with auto-brightness pill
+
+Replace the mixed-grey Center overlay with a pure black/white EPD-friendly
+theme. All controls use a state-list pill background that flips white-bg
+with 2dp black stroke (default) to solid black (selected/pressed), paired
+with a companion text-color selector so the foreground flips in step.
+
+UI changes:
+- Header reduced to title + settings gear + close. The settings gear deep-
+  links to the Settings EinkSettingsFragment via SubSettings.
+- New row beneath the header holds two equal-weight pills: AUTO ON/OFF
+  and LIGHTS ON/OFF.
+- Each light row is a single line: vector icon (snowflake / sun / keyboard,
+  filled when on, hollow when off) on the left, then chevron steppers
+  flanking the percentage value. Tapping the icon toggles that light.
+- Step buttons render double/single chevrons mirrored via scaleX=-1.
+- Refresh-mode and preset buttons reuse the same pill background; the old
+  per-button setTint logic is replaced by setSelected so the state-list
+  drives the visual.
+
+Behavior:
+- AUTO pill toggles SCREEN_BRIGHTNESS_MODE; the existing
+  EinkAutoBrightnessController already observes that key and starts/stops
+  the curve accordingly.
+- Master LIGHTS pill: turning it off while auto is on snapshots the auto
+  state in eink_auto_was_on, forces auto off so the lights actually stay
+  dark, then snapshots and zeros each currently-on light. Turning the
+  master back on restores each light from its snapshot and, if the flag
+  is set, re-enables auto. Manual auto-toggle via the AUTO pill does not
+  set the flag, so the auto-restore is scoped strictly to the master
+  round-trip.
+- Settings.System SCREEN_BRIGHTNESS_MODE observer keeps the AUTO pill in
+  sync if auto is changed elsewhere while the overlay is visible.
+
+Change-Id: I51710a22c70fe40aa3e317a9a2e8d611e3c4be3d
+---
+ .../SystemUI/res/color/eink_button_text.xml   |   7 +
+ .../SystemUI/res/drawable/bg_eink_button.xml  |  28 ++
+ .../SystemUI/res/drawable/divider_eink.xml    |   5 +
+ .../SystemUI/res/drawable/ic_eink_chev.xml    |  14 +
+ .../res/drawable/ic_eink_chev_double.xml      |  20 +
+ .../SystemUI/res/drawable/ic_eink_close.xml   |  17 +
+ .../res/drawable/ic_eink_keyboard_off.xml     |  25 +
+ .../res/drawable/ic_eink_keyboard_on.xml      |  29 ++
+ .../res/drawable/ic_eink_settings.xml         |  10 +
+ .../res/drawable/ic_eink_snowflake_off.xml    |  32 ++
+ .../res/drawable/ic_eink_snowflake_on.xml     |  32 ++
+ .../SystemUI/res/drawable/ic_eink_sun_off.xml |  51 ++
+ .../SystemUI/res/drawable/ic_eink_sun_on.xml  |  50 ++
+ .../res/layout/eink_center_overlay.xml        | 451 +++++++++++-------
+ packages/SystemUI/res/values/eink_strings.xml |  28 ++
+ .../systemui/eink/EinkCenterController.java   | 164 +++++--
+ 16 files changed, 744 insertions(+), 219 deletions(-)
+ create mode 100644 packages/SystemUI/res/color/eink_button_text.xml
+ create mode 100644 packages/SystemUI/res/drawable/bg_eink_button.xml
+ create mode 100644 packages/SystemUI/res/drawable/divider_eink.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_chev.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_chev_double.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_close.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_keyboard_off.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_keyboard_on.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_settings.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_snowflake_off.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_snowflake_on.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_sun_off.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_sun_on.xml
+ create mode 100644 packages/SystemUI/res/values/eink_strings.xml
+
+diff --git a/packages/SystemUI/res/color/eink_button_text.xml b/packages/SystemUI/res/color/eink_button_text.xml
+new file mode 100644
+index 000000000000..cf7a6dc444ed
+--- /dev/null
++++ b/packages/SystemUI/res/color/eink_button_text.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Text color companion for @drawable/bg_eink_button. -->
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_selected="true" android:color="#FFFFFFFF" />
++    <item android:state_pressed="true" android:color="#FFFFFFFF" />
++    <item android:color="#FF000000" />
++</selector>
+diff --git a/packages/SystemUI/res/drawable/bg_eink_button.xml b/packages/SystemUI/res/drawable/bg_eink_button.xml
+new file mode 100644
+index 000000000000..92861be5c8bf
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/bg_eink_button.xml
+@@ -0,0 +1,28 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  Pure black/white pill background for E-Ink Center buttons.
++  - selected or pressed: solid black fill, no stroke
++  - default:             white fill with 2dp black stroke
++  Pair with @color/eink_button_text so the text color flips in step.
++-->
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_selected="true">
++        <shape android:shape="rectangle">
++            <solid android:color="#FF000000" />
++            <corners android:radius="6dp" />
++        </shape>
++    </item>
++    <item android:state_pressed="true">
++        <shape android:shape="rectangle">
++            <solid android:color="#FF000000" />
++            <corners android:radius="6dp" />
++        </shape>
++    </item>
++    <item>
++        <shape android:shape="rectangle">
++            <solid android:color="#FFFFFFFF" />
++            <stroke android:width="2dp" android:color="#FF000000" />
++            <corners android:radius="6dp" />
++        </shape>
++    </item>
++</selector>
+diff --git a/packages/SystemUI/res/drawable/divider_eink.xml b/packages/SystemUI/res/drawable/divider_eink.xml
+new file mode 100644
+index 000000000000..d97dcdd6c0d5
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/divider_eink.xml
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android"
++    android:shape="rectangle">
++    <solid android:color="#FF000000" />
++</shape>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_chev.xml b/packages/SystemUI/res/drawable/ic_eink_chev.xml
+new file mode 100644
+index 000000000000..7e11e248e6d2
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_chev.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Single left chevron. Mirror with android:scaleX="-1" for right-pointing. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="@color/eink_button_text"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:strokeLineJoin="round"
++        android:pathData="M15,5 L9,12 L15,19" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_chev_double.xml b/packages/SystemUI/res/drawable/ic_eink_chev_double.xml
+new file mode 100644
+index 000000000000..97d7728643d0
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_chev_double.xml
+@@ -0,0 +1,20 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Double left chevron. Mirror with android:scaleX="-1" for right-pointing. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="@color/eink_button_text"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:strokeLineJoin="round"
++        android:pathData="M11,5 L5,12 L11,19" />
++    <path
++        android:strokeColor="@color/eink_button_text"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:strokeLineJoin="round"
++        android:pathData="M19,5 L13,12 L19,19" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_close.xml b/packages/SystemUI/res/drawable/ic_eink_close.xml
+new file mode 100644
+index 000000000000..ac9bf0b75a53
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_close.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="@color/eink_button_text"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M5,5 L19,19" />
++    <path
++        android:strokeColor="@color/eink_button_text"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M19,5 L5,19" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_keyboard_off.xml b/packages/SystemUI/res/drawable/ic_eink_keyboard_off.xml
+new file mode 100644
+index 000000000000..334c7d764b77
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_keyboard_off.xml
+@@ -0,0 +1,25 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <!-- Outline body only -->
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M2,5 H22 A1,1 0 0,1 23,6 V18 A1,1 0 0,1 22,19 H2 A1,1 0 0,1 1,18 V6 A1,1 0 0,1 2,5 Z" />
++    <!-- Key dots: small filled squares as glyph hints -->
++    <path android:fillColor="#FF000000" android:pathData="M4,8 H6 V9.5 H4 Z" />
++    <path android:fillColor="#FF000000" android:pathData="M8,8 H10 V9.5 H8 Z" />
++    <path android:fillColor="#FF000000" android:pathData="M12,8 H14 V9.5 H12 Z" />
++    <path android:fillColor="#FF000000" android:pathData="M16,8 H18 V9.5 H16 Z" />
++
++    <path android:fillColor="#FF000000" android:pathData="M4,11 H6 V12.5 H4 Z" />
++    <path android:fillColor="#FF000000" android:pathData="M8,11 H10 V12.5 H8 Z" />
++    <path android:fillColor="#FF000000" android:pathData="M12,11 H14 V12.5 H12 Z" />
++    <path android:fillColor="#FF000000" android:pathData="M16,11 H18 V12.5 H16 Z" />
++
++    <path android:fillColor="#FF000000" android:pathData="M7,15 H15 V16.5 H7 Z" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_keyboard_on.xml b/packages/SystemUI/res/drawable/ic_eink_keyboard_on.xml
+new file mode 100644
+index 000000000000..965f995a26a1
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_keyboard_on.xml
+@@ -0,0 +1,29 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <!-- Outer body -->
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M2,5 H22 A1,1 0 0,1 23,6 V18 A1,1 0 0,1 22,19 H2 A1,1 0 0,1 1,18 V6 A1,1 0 0,1 2,5 Z" />
++    <!-- Key cutouts (white): 3 rows of 4 keys + space bar -->
++    <path android:fillColor="#FFFFFFFF" android:pathData="M3,7 H5.5 V9 H3 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M6.5,7 H9 V9 H6.5 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M10,7 H12.5 V9 H10 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M13.5,7 H16 V9 H13.5 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M17,7 H21 V9 H17 Z" />
++
++    <path android:fillColor="#FFFFFFFF" android:pathData="M3,10 H5.5 V12 H3 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M6.5,10 H9 V12 H6.5 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M10,10 H12.5 V12 H10 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M13.5,10 H16 V12 H13.5 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M17,10 H21 V12 H17 Z" />
++
++    <path android:fillColor="#FFFFFFFF" android:pathData="M3,13 H7 V15 H3 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M8,13 H16 V15 H8 Z" />
++    <path android:fillColor="#FFFFFFFF" android:pathData="M17,13 H21 V15 H17 Z" />
++
++    <path android:fillColor="#FFFFFFFF" android:pathData="M3,16 H21 V17 H3 Z" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_settings.xml b/packages/SystemUI/res/drawable/ic_eink_settings.xml
+new file mode 100644
+index 000000000000..93db38226ce0
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_settings.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="@color/eink_button_text"
++        android:pathData="M19.14,12.94 c0.04,-0.3 0.06,-0.61 0.06,-0.94 c0,-0.32 -0.02,-0.64 -0.07,-0.94 l2.03,-1.58 c0.18,-0.14 0.23,-0.41 0.12,-0.61 l-1.92,-3.32 c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22 l-2.39,0.96 c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94 l-0.36,-2.54 c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41 h-3.84 c-0.24,0 -0.43,0.17 -0.47,0.41 l-0.36,2.54 c-0.59,0.24 -1.13,0.57 -1.62,0.94 l-2.39,-0.96 c-0.22,-0.08 -0.47,0 -0.59,0.22 L2.74,8.87 c-0.12,0.21 -0.08,0.47 0.12,0.61 l2.03,1.58 c-0.05,0.3 -0.09,0.63 -0.09,0.94 c0,0.31 0.02,0.64 0.07,0.94 l-2.03,1.58 c-0.18,0.14 -0.23,0.41 -0.12,0.61 l1.92,3.32 c0.12,0.22 0.37,0.29 0.59,0.22 l2.39,-0.96 c0.5,0.38 1.03,0.7 1.62,0.94 l0.36,2.54 c0.05,0.24 0.24,0.41 0.48,0.41 h3.84 c0.24,0 0.44,-0.17 0.47,-0.41 l0.36,-2.54 c0.59,-0.24 1.13,-0.56 1.62,-0.94 l2.39,0.96 c0.22,0.08 0.47,0 0.59,-0.22 l1.92,-3.32 c0.12,-0.22 0.07,-0.47 -0.12,-0.61 L19.14,12.94 ZM12,15.6 c-1.98,0 -3.6,-1.62 -3.6,-3.6 s1.62,-3.6 3.6,-3.6 s3.6,1.62 3.6,3.6 S13.98,15.6 12,15.6 Z" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_snowflake_off.xml b/packages/SystemUI/res/drawable/ic_eink_snowflake_off.xml
+new file mode 100644
+index 000000000000..8c80e831e3cc
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_snowflake_off.xml
+@@ -0,0 +1,32 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M12,3 L12,21" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M4.2,7.5 L19.8,16.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M4.2,16.5 L19.8,7.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M9.5,4.5 L12,6 L14.5,4.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M9.5,19.5 L12,18 L14.5,19.5" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_snowflake_on.xml b/packages/SystemUI/res/drawable/ic_eink_snowflake_on.xml
+new file mode 100644
+index 000000000000..78fdd6b61180
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_snowflake_on.xml
+@@ -0,0 +1,32 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M12,3 L12,21" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M4.2,7.5 L19.8,16.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M4.2,16.5 L19.8,7.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M9.5,4.5 L12,6 L14.5,4.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="3"
++        android:strokeLineCap="round"
++        android:pathData="M9.5,19.5 L12,18 L14.5,19.5" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_sun_off.xml b/packages/SystemUI/res/drawable/ic_eink_sun_off.xml
+new file mode 100644
+index 000000000000..cd38257c3fba
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_sun_off.xml
+@@ -0,0 +1,51 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:pathData="M12,7.5 A4.5,4.5 0 1,0 12,16.5 A4.5,4.5 0 1,0 12,7.5 Z" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M12,1.5 L12,4" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M12,20 L12,22.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M1.5,12 L4,12" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M20,12 L22.5,12" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M4.6,4.6 L6.4,6.4" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M17.6,17.6 L19.4,19.4" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M4.6,19.4 L6.4,17.6" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="1.5"
++        android:strokeLineCap="round"
++        android:pathData="M17.6,6.4 L19.4,4.6" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_sun_on.xml b/packages/SystemUI/res/drawable/ic_eink_sun_on.xml
+new file mode 100644
+index 000000000000..ad1edf44ba01
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_sun_on.xml
+@@ -0,0 +1,50 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M12,7.5 A4.5,4.5 0 1,0 12,16.5 A4.5,4.5 0 1,0 12,7.5 Z" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M12,1.5 L12,4" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M12,20 L12,22.5" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M1.5,12 L4,12" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M20,12 L22.5,12" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M4.6,4.6 L6.4,6.4" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M17.6,17.6 L19.4,19.4" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M4.6,19.4 L6.4,17.6" />
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2.2"
++        android:strokeLineCap="round"
++        android:pathData="M17.6,6.4 L19.4,4.6" />
++</vector>
+diff --git a/packages/SystemUI/res/layout/eink_center_overlay.xml b/packages/SystemUI/res/layout/eink_center_overlay.xml
+index a75820f6c706..2cec3878d7cf 100644
+--- a/packages/SystemUI/res/layout/eink_center_overlay.xml
++++ b/packages/SystemUI/res/layout/eink_center_overlay.xml
+@@ -1,4 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
++<!--
++  E-Ink Center overlay. Pure black/white theme (no greys) so it renders
++  crisply on the EPD. All buttons use @drawable/bg_eink_button which flips
++  white-bg → black-bg on pressed/selected, and the companion text color
++  selector @color/eink_button_text flips text in step.
++-->
+ <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     android:id="@+id/eink_center_root"
+     android:layout_width="match_parent"
+@@ -8,16 +14,16 @@
+     android:padding="16dp"
+     android:paddingBottom="32dp">
+ 
+-    <!-- Header -->
++    <!-- Header: title + settings gear + close. -->
+     <RelativeLayout
+         android:layout_width="match_parent"
+-        android:layout_height="56dp">
++        android:layout_height="48dp">
+ 
+         <TextView
+             android:layout_width="wrap_content"
+             android:layout_height="wrap_content"
+             android:layout_centerVertical="true"
+-            android:text="E-INK CENTER"
++            android:text="@string/eink_center_title"
+             android:textColor="#FF000000"
+             android:textStyle="bold"
+             android:textSize="16sp"
+@@ -30,243 +36,303 @@
+             android:layout_centerVertical="true"
+             android:orientation="horizontal">
+ 
+-            <Button
+-                android:id="@+id/lights_toggle_btn"
+-                android:layout_width="40dp"
+-                android:layout_height="40dp"
+-                android:text="☀"
+-                android:textSize="18sp"
+-                android:textColor="#FFFFFFFF"
+-                android:backgroundTint="#FF000000"
+-                android:minWidth="0dp"
+-                android:padding="0dp" />
++            <ImageButton
++                android:id="@+id/eink_settings_btn"
++                android:layout_width="44dp"
++                android:layout_height="44dp"
++                android:src="@drawable/ic_eink_settings"
++                android:background="@drawable/bg_eink_button"
++                android:scaleType="centerInside"
++                android:padding="8dp"
++                android:contentDescription="@string/eink_center_settings_cd" />
+ 
+             <Space android:layout_width="8dp" android:layout_height="match_parent" />
+ 
+-            <Button
++            <ImageButton
+                 android:id="@+id/eink_close_btn"
+-                android:layout_width="40dp"
+-                android:layout_height="40dp"
+-                android:text="✕"
+-                android:textSize="14sp"
+-                android:textColor="#FFFFFFFF"
+-                android:backgroundTint="#FF000000"
+-                android:minWidth="0dp"
+-                android:padding="0dp" />
++                android:layout_width="44dp"
++                android:layout_height="44dp"
++                android:src="@drawable/ic_eink_close"
++                android:background="@drawable/bg_eink_button"
++                android:scaleType="centerInside"
++                android:padding="8dp"
++                android:contentDescription="@string/eink_center_close_cd" />
+         </LinearLayout>
+     </RelativeLayout>
+ 
+-    <!-- Divider -->
+     <View
+         android:layout_width="match_parent"
+-        android:layout_height="1dp"
+-        android:background="#55000000"
+-        android:layout_marginBottom="16dp" />
++        android:layout_height="2dp"
++        android:background="@drawable/divider_eink"
++        android:layout_marginTop="12dp"
++        android:layout_marginBottom="12dp" />
+ 
+-    <!-- Cold frontlight label with inline on/off icon -->
++    <!-- Auto-brightness + master lights pills, side by side. -->
+     <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:orientation="horizontal"
+-        android:gravity="center_vertical"
+-        android:layout_marginBottom="8dp">
+-        <TextView android:id="@+id/cold_toggle_icon"
+-            android:layout_width="32dp" android:layout_height="32dp"
+-            android:text="●" android:textSize="16sp"
+-            android:textColor="#FF000000"
+-            android:gravity="center"
+-            android:clickable="true" android:focusable="true" />
+-        <TextView
++        android:layout_marginBottom="12dp">
++
++        <Button
++            android:id="@+id/auto_brightness_btn"
+             android:layout_width="0dp"
+             android:layout_weight="1"
+-            android:layout_height="wrap_content"
+-            android:text="COLD LIGHT"
+-            android:textColor="#AA000000"
+-            android:textSize="11sp"
++            android:layout_height="48dp"
++            android:layout_marginEnd="4dp"
++            android:background="@drawable/bg_eink_button"
++            android:textColor="@color/eink_button_text"
++            android:textStyle="bold"
++            android:textSize="13sp"
++            android:letterSpacing="0.08"
++            android:minWidth="0dp"
++            android:padding="0dp" />
++
++        <Button
++            android:id="@+id/lights_toggle_btn"
++            android:layout_width="0dp"
++            android:layout_weight="1"
++            android:layout_height="48dp"
++            android:layout_marginStart="4dp"
++            android:background="@drawable/bg_eink_button"
++            android:textColor="@color/eink_button_text"
++            android:textStyle="bold"
++            android:textSize="13sp"
+             android:letterSpacing="0.08"
+-            android:paddingStart="4dp" />
++            android:minWidth="0dp"
++            android:padding="0dp" />
+     </LinearLayout>
+ 
+-    <!-- Cold frontlight step controls -->
++    <View
++        android:layout_width="match_parent"
++        android:layout_height="2dp"
++        android:background="@drawable/divider_eink"
++        android:layout_marginBottom="12dp" />
++
++    <!-- Cold frontlight row: icon + chevron steppers + value. -->
+     <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="48dp"
+         android:orientation="horizontal"
+         android:gravity="center_vertical"
+-        android:layout_marginBottom="16dp">
++        android:layout_marginBottom="8dp">
++
++        <ImageView
++            android:id="@+id/cold_toggle_icon"
++            android:layout_width="44dp"
++            android:layout_height="44dp"
++            android:src="@drawable/ic_eink_snowflake_on"
++            android:scaleType="centerInside"
++            android:padding="6dp"
++            android:clickable="true"
++            android:focusable="true"
++            android:contentDescription="@string/eink_center_cold_cd" />
+ 
+-        <Button android:id="@+id/cold_dec_coarse"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="−−" android:textSize="13sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+-        <Button android:id="@+id/cold_dec"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="−" android:textSize="20sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+-        <TextView android:id="@+id/cold_value"
++
++        <ImageButton
++            android:id="@+id/cold_dec_coarse"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev_double"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:contentDescription="@string/eink_center_dec_coarse_cd" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <ImageButton
++            android:id="@+id/cold_dec"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:contentDescription="@string/eink_center_dec_cd" />
++
++        <TextView
++            android:id="@+id/cold_value"
+             android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="wrap_content"
+             android:textColor="#FF000000"
+-            android:textSize="24sp" android:textStyle="bold"
++            android:textSize="22sp"
++            android:textStyle="bold"
+             android:gravity="center" />
+-        <Button android:id="@+id/cold_inc"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="+" android:textSize="20sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
++
++        <ImageButton
++            android:id="@+id/cold_inc"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:scaleX="-1"
++            android:contentDescription="@string/eink_center_inc_cd" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+-        <Button android:id="@+id/cold_inc_coarse"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="++" android:textSize="13sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
++        <ImageButton
++            android:id="@+id/cold_inc_coarse"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev_double"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:scaleX="-1"
++            android:contentDescription="@string/eink_center_inc_coarse_cd" />
+     </LinearLayout>
+ 
+-    <!-- Warm frontlight label with inline on/off icon -->
++    <!-- Warm frontlight row. -->
+     <LinearLayout
+         android:layout_width="match_parent"
+-        android:layout_height="wrap_content"
++        android:layout_height="48dp"
+         android:orientation="horizontal"
+         android:gravity="center_vertical"
+         android:layout_marginBottom="8dp">
+-        <TextView android:id="@+id/warm_toggle_icon"
+-            android:layout_width="32dp" android:layout_height="32dp"
+-            android:text="●" android:textSize="16sp"
+-            android:textColor="#FF000000"
+-            android:gravity="center"
+-            android:clickable="true" android:focusable="true" />
+-        <TextView
+-            android:layout_width="0dp"
+-            android:layout_weight="1"
+-            android:layout_height="wrap_content"
+-            android:text="WARM LIGHT"
+-            android:textColor="#AA000000"
+-            android:textSize="11sp"
+-            android:letterSpacing="0.08"
+-            android:paddingStart="4dp" />
+-    </LinearLayout>
+ 
+-    <!-- Warm frontlight step controls -->
+-    <LinearLayout
+-        android:layout_width="match_parent"
+-        android:layout_height="48dp"
+-        android:orientation="horizontal"
+-        android:gravity="center_vertical"
+-        android:layout_marginBottom="16dp">
++        <ImageView
++            android:id="@+id/warm_toggle_icon"
++            android:layout_width="44dp"
++            android:layout_height="44dp"
++            android:src="@drawable/ic_eink_sun_on"
++            android:scaleType="centerInside"
++            android:padding="6dp"
++            android:clickable="true"
++            android:focusable="true"
++            android:contentDescription="@string/eink_center_warm_cd" />
+ 
+-        <Button android:id="@+id/warm_dec_coarse"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="−−" android:textSize="13sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+-        <Button android:id="@+id/warm_dec"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="−" android:textSize="20sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+-        <TextView android:id="@+id/warm_value"
++
++        <ImageButton
++            android:id="@+id/warm_dec_coarse"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev_double"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:contentDescription="@string/eink_center_dec_coarse_cd" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <ImageButton
++            android:id="@+id/warm_dec"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:contentDescription="@string/eink_center_dec_cd" />
++
++        <TextView
++            android:id="@+id/warm_value"
+             android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="wrap_content"
+             android:textColor="#FF000000"
+-            android:textSize="24sp" android:textStyle="bold"
++            android:textSize="22sp"
++            android:textStyle="bold"
+             android:gravity="center" />
+-        <Button android:id="@+id/warm_inc"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="+" android:textSize="20sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+-        <Space android:layout_width="4dp" android:layout_height="match_parent" />
+-        <Button android:id="@+id/warm_inc_coarse"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="++" android:textSize="13sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+-    </LinearLayout>
+ 
+-    <!-- Keyboard backlight label with inline on/off icon -->
+-    <LinearLayout
+-        android:layout_width="match_parent"
+-        android:layout_height="wrap_content"
+-        android:orientation="horizontal"
+-        android:gravity="center_vertical"
+-        android:layout_marginBottom="8dp">
+-        <TextView android:id="@+id/kbd_toggle_icon"
+-            android:layout_width="32dp" android:layout_height="32dp"
+-            android:text="●" android:textSize="16sp"
+-            android:textColor="#FF000000"
+-            android:gravity="center"
+-            android:clickable="true" android:focusable="true" />
+-        <TextView
+-            android:layout_width="0dp"
+-            android:layout_weight="1"
+-            android:layout_height="wrap_content"
+-            android:text="KEYBOARD"
+-            android:textColor="#AA000000"
+-            android:textSize="11sp"
+-            android:letterSpacing="0.08"
+-            android:paddingStart="4dp" />
++        <ImageButton
++            android:id="@+id/warm_inc"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:scaleX="-1"
++            android:contentDescription="@string/eink_center_inc_cd" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <ImageButton
++            android:id="@+id/warm_inc_coarse"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev_double"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:scaleX="-1"
++            android:contentDescription="@string/eink_center_inc_coarse_cd" />
+     </LinearLayout>
+ 
+-    <!-- Keyboard backlight step controls -->
++    <!-- Keyboard backlight row. -->
+     <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="48dp"
+         android:orientation="horizontal"
+         android:gravity="center_vertical"
+-        android:layout_marginBottom="16dp">
++        android:layout_marginBottom="12dp">
++
++        <ImageView
++            android:id="@+id/kbd_toggle_icon"
++            android:layout_width="44dp"
++            android:layout_height="44dp"
++            android:src="@drawable/ic_eink_keyboard_on"
++            android:scaleType="centerInside"
++            android:padding="6dp"
++            android:clickable="true"
++            android:focusable="true"
++            android:contentDescription="@string/eink_center_kbd_cd" />
+ 
+-        <Button android:id="@+id/kbd_dec_coarse"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="−−" android:textSize="13sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+-        <Button android:id="@+id/kbd_dec"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="−" android:textSize="20sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
+-        <TextView android:id="@+id/kbd_value"
++
++        <ImageButton
++            android:id="@+id/kbd_dec_coarse"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev_double"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:contentDescription="@string/eink_center_dec_coarse_cd" />
++        <Space android:layout_width="4dp" android:layout_height="match_parent" />
++        <ImageButton
++            android:id="@+id/kbd_dec"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:contentDescription="@string/eink_center_dec_cd" />
++
++        <TextView
++            android:id="@+id/kbd_value"
+             android:layout_width="0dp" android:layout_weight="1"
+             android:layout_height="wrap_content"
+             android:textColor="#FF000000"
+-            android:textSize="24sp" android:textStyle="bold"
++            android:textSize="22sp"
++            android:textStyle="bold"
+             android:gravity="center" />
+-        <Button android:id="@+id/kbd_inc"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="+" android:textSize="20sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
++
++        <ImageButton
++            android:id="@+id/kbd_inc"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:scaleX="-1"
++            android:contentDescription="@string/eink_center_inc_cd" />
+         <Space android:layout_width="4dp" android:layout_height="match_parent" />
+-        <Button android:id="@+id/kbd_inc_coarse"
+-            android:layout_width="52dp" android:layout_height="44dp"
+-            android:text="++" android:textSize="13sp"
+-            android:textColor="#FFFFFFFF" android:backgroundTint="#FF000000"
+-            android:minWidth="0dp" android:padding="0dp" />
++        <ImageButton
++            android:id="@+id/kbd_inc_coarse"
++            android:layout_width="44dp" android:layout_height="44dp"
++            android:src="@drawable/ic_eink_chev_double"
++            android:background="@drawable/bg_eink_button"
++            android:scaleType="centerInside"
++            android:padding="8dp"
++            android:scaleX="-1"
++            android:contentDescription="@string/eink_center_inc_coarse_cd" />
+     </LinearLayout>
+ 
+-    <!-- Divider -->
+     <View
+         android:layout_width="match_parent"
+-        android:layout_height="1dp"
+-        android:background="#55000000"
+-        android:layout_marginBottom="16dp" />
++        android:layout_height="2dp"
++        android:background="@drawable/divider_eink"
++        android:layout_marginBottom="12dp" />
+ 
+-    <!-- Refresh mode label -->
++    <!-- Refresh mode -->
+     <TextView
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="REFRESH MODE"
+-        android:textColor="#AA000000"
++        android:text="@string/eink_center_refresh_mode"
++        android:textColor="#FF000000"
++        android:textStyle="bold"
+         android:textSize="11sp"
+         android:letterSpacing="0.08"
+         android:layout_marginBottom="8dp" />
+ 
+-    <!-- Refresh mode buttons: CLEAR=1, A2=3, SPEED=4 -->
+     <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+@@ -275,39 +341,54 @@
+ 
+         <Button android:id="@+id/mode_clear"
+             android:layout_width="0dp" android:layout_weight="1"
+-            android:layout_height="44dp" android:layout_margin="2dp"
+-            android:text="CLEAR" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFE0E0E0" />
++            android:layout_height="44dp" android:layout_marginEnd="4dp"
++            android:background="@drawable/bg_eink_button"
++            android:textColor="@color/eink_button_text"
++            android:textStyle="bold"
++            android:textSize="13sp"
++            android:letterSpacing="0.08"
++            android:text="@string/eink_center_mode_clear"
++            android:minWidth="0dp" android:padding="0dp" />
+         <Button android:id="@+id/mode_a2"
+             android:layout_width="0dp" android:layout_weight="1"
+-            android:layout_height="44dp" android:layout_margin="2dp"
+-            android:text="A2" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFE0E0E0" />
++            android:layout_height="44dp"
++            android:layout_marginStart="4dp" android:layout_marginEnd="4dp"
++            android:background="@drawable/bg_eink_button"
++            android:textColor="@color/eink_button_text"
++            android:textStyle="bold"
++            android:textSize="13sp"
++            android:letterSpacing="0.08"
++            android:text="@string/eink_center_mode_a2"
++            android:minWidth="0dp" android:padding="0dp" />
+         <Button android:id="@+id/mode_speed"
+             android:layout_width="0dp" android:layout_weight="1"
+-            android:layout_height="44dp" android:layout_margin="2dp"
+-            android:text="SPEED" android:textSize="13sp"
+-            android:textColor="#FF000000" android:backgroundTint="#FFE0E0E0" />
++            android:layout_height="44dp" android:layout_marginStart="4dp"
++            android:background="@drawable/bg_eink_button"
++            android:textColor="@color/eink_button_text"
++            android:textStyle="bold"
++            android:textSize="13sp"
++            android:letterSpacing="0.08"
++            android:text="@string/eink_center_mode_speed"
++            android:minWidth="0dp" android:padding="0dp" />
+     </LinearLayout>
+ 
+-    <!-- Divider -->
+     <View
+         android:layout_width="match_parent"
+-        android:layout_height="1dp"
+-        android:background="#55000000"
+-        android:layout_marginBottom="16dp" />
++        android:layout_height="2dp"
++        android:background="@drawable/divider_eink"
++        android:layout_marginBottom="12dp" />
+ 
+-    <!-- Presets label -->
++    <!-- Presets -->
+     <TextView
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="PRESETS"
+-        android:textColor="#AA000000"
++        android:text="@string/eink_center_presets"
++        android:textColor="#FF000000"
++        android:textStyle="bold"
+         android:textSize="11sp"
+         android:letterSpacing="0.08"
+         android:layout_marginBottom="8dp" />
+ 
+-    <!-- Preset buttons (populated programmatically) -->
+     <LinearLayout
+         android:id="@+id/eink_presets_row"
+         android:layout_width="match_parent"
+diff --git a/packages/SystemUI/res/values/eink_strings.xml b/packages/SystemUI/res/values/eink_strings.xml
+new file mode 100644
+index 000000000000..3a9d0a1c5d29
+--- /dev/null
++++ b/packages/SystemUI/res/values/eink_strings.xml
+@@ -0,0 +1,28 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- E-Ink Center overlay -->
++    <string name="eink_center_title">E-INK CENTER</string>
++    <string name="eink_center_settings_cd">E-Ink settings</string>
++    <string name="eink_center_close_cd">Close</string>
++
++    <string name="eink_center_auto_label">AUTO</string>
++    <string name="eink_center_lights_label">LIGHTS</string>
++    <string name="eink_center_on">ON</string>
++    <string name="eink_center_off">OFF</string>
++
++    <string name="eink_center_cold_cd">Cold light on/off</string>
++    <string name="eink_center_warm_cd">Warm light on/off</string>
++    <string name="eink_center_kbd_cd">Keyboard backlight on/off</string>
++
++    <string name="eink_center_dec_coarse_cd">Decrease by 10</string>
++    <string name="eink_center_dec_cd">Decrease by 1</string>
++    <string name="eink_center_inc_cd">Increase by 1</string>
++    <string name="eink_center_inc_coarse_cd">Increase by 10</string>
++
++    <string name="eink_center_refresh_mode">REFRESH MODE</string>
++    <string name="eink_center_mode_clear">CLEAR</string>
++    <string name="eink_center_mode_a2">A2</string>
++    <string name="eink_center_mode_speed">SPEED</string>
++
++    <string name="eink_center_presets">PRESETS</string>
++</resources>
+diff --git a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+index 4393d9b9e04f..69119c5e13b8 100644
+--- a/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
++++ b/packages/SystemUI/src/com/android/systemui/eink/EinkCenterController.java
+@@ -7,12 +7,17 @@ package com.android.systemui.eink;
+ 
+ import android.annotation.SuppressLint;
+ import android.content.BroadcastReceiver;
++import android.content.ComponentName;
+ import android.content.ContentResolver;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.IntentFilter;
++import android.content.res.ColorStateList;
++import android.database.ContentObserver;
+ import android.eink.IEinkManager;
+ import android.graphics.PixelFormat;
++import android.os.Handler;
++import android.os.Looper;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
+ import android.os.UserHandle;
+@@ -24,6 +29,7 @@ import android.view.MotionEvent;
+ import android.view.View;
+ import android.view.WindowManager;
+ import android.widget.Button;
++import android.widget.ImageView;
+ import android.widget.LinearLayout;
+ import android.widget.TextView;
+ 
+@@ -56,8 +62,8 @@ public class EinkCenterController implements CoreStartable {
+     private static final int KBD_MAX_HW  = 254;
+ 
+     // Per-light off flags + saved values. Each light is independently toggleable; the master
+-    // toggle in the header is just a shortcut that sets/clears all three at once. The "saved"
+-    // value is the last known on-value, restored when the light is toggled back on.
++    // pill is a shortcut that sets/clears all three at once. The "saved" value is the last
++    // known on-value, restored when the light is toggled back on.
+     static final String KEY_COLD_OFF   = "eink_cold_off";
+     static final String KEY_WARM_OFF   = "eink_warm_off";
+     static final String KEY_KBD_OFF    = "eink_kbd_off";
+@@ -65,16 +71,14 @@ public class EinkCenterController implements CoreStartable {
+     static final String KEY_WARM_SAVED = "eink_warm_saved";
+     static final String KEY_KBD_SAVED  = "eink_kbd_saved";
+ 
++    // Set when the user kills the master while auto-brightness is on, so re-enabling
++    // the master can restore auto. Manual auto-toggle (via the AUTO pill) does NOT set this.
++    static final String KEY_AUTO_WAS_ON = "eink_auto_was_on";
++
+     // Step sizes in percentage points
+     private static final int FINE   = 1;
+     private static final int COARSE = 10;
+ 
+-    // Mode button tints: selected = black bg / white text, unselected = light grey / black text
+-    private static final int TINT_SELECTED   = 0xFF000000;
+-    private static final int TINT_UNSELECTED = 0xFFE0E0E0;
+-    private static final int TEXT_SELECTED   = 0xFFFFFFFF;
+-    private static final int TEXT_UNSELECTED = 0xFF000000;
+-
+     // Hardware mode values for each button (CLEAR=1, A2=3, SPEED=4)
+     private static final int[] MODE_VALUES = {1, 3, 4};
+ 
+@@ -90,9 +94,14 @@ public class EinkCenterController implements CoreStartable {
+ 
+     private Button[] mModeButtons;
+     private Button mLightsToggle;
+-    private TextView mColdIcon;
+-    private TextView mWarmIcon;
+-    private TextView mKbdIcon;
++    private Button mAutoBrightnessBtn;
++    private View mSettingsBtn;
++    private ImageView mColdIcon;
++    private ImageView mWarmIcon;
++    private ImageView mKbdIcon;
++
++    private final Handler mHandler = new Handler(Looper.getMainLooper());
++    private ContentObserver mAutoModeObserver;
+ 
+     @Inject
+     public EinkCenterController(
+@@ -114,9 +123,22 @@ public class EinkCenterController implements CoreStartable {
+     public void start() {
+         inflateOverlay();
+         registerReceiver();
++        registerAutoModeObserver();
+         ensureScreensaverConfigured();
+     }
+ 
++    private void registerAutoModeObserver() {
++        mAutoModeObserver = new ContentObserver(mHandler) {
++            @Override
++            public void onChange(boolean selfChange) {
++                if (mShowing) updateAutoBrightnessPill();
++            }
++        };
++        mContext.getContentResolver().registerContentObserver(
++                Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_MODE),
++                false, mAutoModeObserver, UserHandle.USER_ALL);
++    }
++
+     /**
+      * Make sure the e-ink screensaver dream is the active screensaver component.
+      *
+@@ -187,6 +209,12 @@ public class EinkCenterController implements CoreStartable {
+         mOverlayView.findViewById(R.id.eink_close_btn)
+                 .setOnClickListener(v -> hide());
+ 
++        mSettingsBtn = mOverlayView.findViewById(R.id.eink_settings_btn);
++        mSettingsBtn.setOnClickListener(v -> openSettings());
++
++        mAutoBrightnessBtn = mOverlayView.findViewById(R.id.auto_brightness_btn);
++        mAutoBrightnessBtn.setOnClickListener(v -> toggleAutoBrightness());
++
+         mLightsToggle = mOverlayView.findViewById(R.id.lights_toggle_btn);
+         mLightsToggle.setOnClickListener(v -> toggleAllLights());
+ 
+@@ -249,6 +277,8 @@ public class EinkCenterController implements CoreStartable {
+     private void buildPresetButtons() {
+         LinearLayout row = mOverlayView.findViewById(R.id.eink_presets_row);
+         row.removeAllViews();
++        ColorStateList textColor = mContext.getResources()
++                .getColorStateList(R.color.eink_button_text, mContext.getTheme());
+         int count = mPresetManager.getCount();
+         for (int i = 0; i < count; i++) {
+             String name = mPresetManager.getName(i);
+@@ -256,11 +286,11 @@ public class EinkCenterController implements CoreStartable {
+             Button btn = new Button(mContext);
+             btn.setText(name.toUpperCase());
+             btn.setTextSize(12f);
+-            btn.setTextColor(TEXT_UNSELECTED);
+-            btn.getBackground().setTint(TINT_UNSELECTED);
++            btn.setTextColor(textColor);
++            btn.setBackgroundResource(R.drawable.bg_eink_button);
+             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+-            lp.setMargins(2, 0, 2, 0);
++            lp.setMargins(4, 0, 4, 0);
+             btn.setLayoutParams(lp);
+             final int slot = i;
+             btn.setOnClickListener(v -> applyPreset(slot));
+@@ -288,29 +318,43 @@ public class EinkCenterController implements CoreStartable {
+                     .setText(kbdToPercent(kbd) + "%");
+             updateModeButtons(mode);
+             updateLightsToggle();
++            updateAutoBrightnessPill();
+         } catch (RemoteException e) {
+             Log.e(TAG, "refreshValues failed", e);
+         }
+     }
+ 
+-    private static final String ICON_ON  = "●"; // ●
+-    private static final String ICON_OFF = "○"; // ○
+-
+     private void updateLightsToggle() {
+         ContentResolver cr = mContext.getContentResolver();
+         boolean coldOff = isOff(cr, KEY_COLD_OFF);
+         boolean warmOff = isOff(cr, KEY_WARM_OFF);
+         boolean kbdOff  = isOff(cr, KEY_KBD_OFF);
+-        // Master shows OFF only when all three are off
+-        applyMasterVisual(mLightsToggle, !(coldOff && warmOff && kbdOff));
+-        mColdIcon.setText(coldOff ? ICON_OFF : ICON_ON);
+-        mWarmIcon.setText(warmOff ? ICON_OFF : ICON_ON);
+-        mKbdIcon.setText(kbdOff  ? ICON_OFF : ICON_ON);
+-    }
+-
+-    private static void applyMasterVisual(Button btn, boolean on) {
+-        btn.getBackground().setTint(on ? TINT_SELECTED : TINT_UNSELECTED);
+-        btn.setTextColor(on ? TEXT_SELECTED : TEXT_UNSELECTED);
++        boolean anyOn = !(coldOff && warmOff && kbdOff);
++        // Master pill: selected (black) when any light is on. State-list bg + text-color
++        // selector flip together via setSelected.
++        mLightsToggle.setSelected(anyOn);
++        mLightsToggle.setText(mContext.getString(R.string.eink_center_lights_label) + " "
++                + mContext.getString(anyOn ? R.string.eink_center_on : R.string.eink_center_off));
++        mColdIcon.setImageResource(coldOff
++                ? R.drawable.ic_eink_snowflake_off : R.drawable.ic_eink_snowflake_on);
++        mWarmIcon.setImageResource(warmOff
++                ? R.drawable.ic_eink_sun_off : R.drawable.ic_eink_sun_on);
++        mKbdIcon.setImageResource(kbdOff
++                ? R.drawable.ic_eink_keyboard_off : R.drawable.ic_eink_keyboard_on);
++    }
++
++    private void updateAutoBrightnessPill() {
++        boolean on = isAutoBrightnessOn();
++        mAutoBrightnessBtn.setSelected(on);
++        mAutoBrightnessBtn.setText(mContext.getString(R.string.eink_center_auto_label) + " "
++                + mContext.getString(on ? R.string.eink_center_on : R.string.eink_center_off));
++    }
++
++    private boolean isAutoBrightnessOn() {
++        return Settings.System.getInt(mContext.getContentResolver(),
++                Settings.System.SCREEN_BRIGHTNESS_MODE,
++                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
++                == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC;
+     }
+ 
+     private static boolean isOff(ContentResolver cr, String key) {
+@@ -321,9 +365,7 @@ public class EinkCenterController implements CoreStartable {
+ 
+     private void updateModeButtons(int activeMode) {
+         for (int i = 0; i < mModeButtons.length; i++) {
+-            boolean selected = MODE_VALUES[i] == activeMode;
+-            mModeButtons[i].getBackground().setTint(selected ? TINT_SELECTED : TINT_UNSELECTED);
+-            mModeButtons[i].setTextColor(selected ? TEXT_SELECTED : TEXT_UNSELECTED);
++            mModeButtons[i].setSelected(MODE_VALUES[i] == activeMode);
+         }
+     }
+ 
+@@ -414,7 +456,16 @@ public class EinkCenterController implements CoreStartable {
+     }
+ 
+     /**
+-     * Master toggle: if all three off, restore all; else snapshot any non-off ones, zero all.
++     * Master toggle. Two paths:
++     *
++     * <p>All-off → on: restore each light from its snapshot, then if auto-brightness was
++     * suspended by a previous master-off, re-enable it (the EinkAutoBrightnessController will
++     * pick the SCREEN_BRIGHTNESS_MODE write up via its observer and resume curve application).
++     *
++     * <p>Any-on → off: if auto is currently on, remember that and force it off so the lights
++     * actually stay dark; then snapshot+zero each currently-on light. Manual auto-toggle via
++     * the AUTO pill does not set the remember flag, so the auto-restore behavior is scoped
++     * strictly to the master round-trip.
+      */
+     private void toggleAllLights() {
+         IEinkManager eink = getEink();
+@@ -424,10 +475,22 @@ public class EinkCenterController implements CoreStartable {
+                 && isOff(cr, KEY_WARM_OFF)
+                 && isOff(cr, KEY_KBD_OFF);
+         try {
+-            for (Light l : Light.values()) {
+-                if (allOff) {
++            if (allOff) {
++                for (Light l : Light.values()) {
+                     if (isOff(cr, offKey(l))) restore(eink, cr, l);
+-                } else {
++                }
++                if (Settings.System.getInt(cr, KEY_AUTO_WAS_ON, 0) == 1) {
++                    Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS_MODE,
++                            Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC);
++                    Settings.System.putInt(cr, KEY_AUTO_WAS_ON, 0);
++                }
++            } else {
++                if (isAutoBrightnessOn()) {
++                    Settings.System.putInt(cr, KEY_AUTO_WAS_ON, 1);
++                    Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS_MODE,
++                            Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
++                }
++                for (Light l : Light.values()) {
+                     if (!isOff(cr, offKey(l))) snapshot(eink, cr, l);
+                 }
+             }
+@@ -437,6 +500,39 @@ public class EinkCenterController implements CoreStartable {
+         }
+     }
+ 
++    /**
++     * Toggle the auto-brightness mode directly. Clears the master-restore flag so the next
++     * master OFF→ON cycle won't unexpectedly re-enable auto.
++     */
++    private void toggleAutoBrightness() {
++        ContentResolver cr = mContext.getContentResolver();
++        int next = isAutoBrightnessOn()
++                ? Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
++                : Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC;
++        Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS_MODE, next);
++        Settings.System.putInt(cr, KEY_AUTO_WAS_ON, 0);
++        updateAutoBrightnessPill();
++    }
++
++    /**
++     * Open the E-Ink settings fragment via Settings' SubSettings activity. The overlay is
++     * hidden first so it doesn't sit on top of the launched Settings UI.
++     */
++    private void openSettings() {
++        hide();
++        Intent intent = new Intent();
++        intent.setComponent(new ComponentName(
++                "com.android.settings", "com.android.settings.SubSettings"));
++        intent.putExtra(":settings:show_fragment",
++                "com.android.settings.display.eink.EinkSettingsFragment");
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        try {
++            mContext.startActivityAsUser(intent, UserHandle.CURRENT);
++        } catch (Exception e) {
++            Log.e(TAG, "openSettings failed", e);
++        }
++    }
++
+     private void snapshot(IEinkManager eink, ContentResolver cr, Light light)
+             throws RemoteException {
+         int current = readLight(eink, light);
+-- 
+2.43.0
+
