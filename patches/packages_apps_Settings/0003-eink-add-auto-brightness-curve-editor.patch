@@ -1,4 +1,4 @@
-From cce9f0fcdce06266ebef85679e8491b6d78f7af2 Mon Sep 17 00:00:00 2001
+From 7cb16c3b70f6d9eea78d6e09f6f85e87be4570b0 Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Wed, 29 Apr 2026 12:59:26 +0200
 Subject: [PATCH 3/3] eink: add auto-brightness curve editor
@@ -19,14 +19,14 @@ plus a 'reset this curve' action.
 
 Change-Id: I14086af2515070278e9afce34cdddd7a1fd4efb6
 ---
- res/values/eink_strings.xml                   | 21 ++++
- res/xml/eink_auto_curve_edit.xml              | 41 ++++++++
- res/xml/eink_auto_curves_list.xml             | 21 ++++
- res/xml/eink_display_settings.xml             |  7 ++
- .../display/eink/EinkAutoCurveDefaults.java   | 58 +++++++++++
- .../eink/EinkAutoCurveEditFragment.java       | 95 +++++++++++++++++++
- .../display/eink/EinkAutoCurvesFragment.java  | 67 +++++++++++++
- 7 files changed, 310 insertions(+)
+ res/values/eink_strings.xml                   |  27 ++++
+ res/xml/eink_auto_curve_edit.xml              |  54 +++++++
+ res/xml/eink_auto_curves_list.xml             |  36 +++++
+ res/xml/eink_display_settings.xml             |   7 +
+ .../display/eink/EinkAutoCurveDefaults.java   |  80 +++++++++
+ .../eink/EinkAutoCurveEditFragment.java       | 153 ++++++++++++++++++
+ .../display/eink/EinkAutoCurvesFragment.java  | 129 +++++++++++++++
+ 7 files changed, 486 insertions(+)
  create mode 100644 res/xml/eink_auto_curve_edit.xml
  create mode 100644 res/xml/eink_auto_curves_list.xml
  create mode 100644 src/com/android/settings/display/eink/EinkAutoCurveDefaults.java
@@ -34,10 +34,10 @@ Change-Id: I14086af2515070278e9afce34cdddd7a1fd4efb6
  create mode 100644 src/com/android/settings/display/eink/EinkAutoCurvesFragment.java
 
 diff --git a/res/values/eink_strings.xml b/res/values/eink_strings.xml
-index 48e306c037d..0fcb5d858db 100644
+index 48e306c037d..d107a2de1f4 100644
 --- a/res/values/eink_strings.xml
 +++ b/res/values/eink_strings.xml
-@@ -29,6 +29,27 @@
+@@ -29,6 +29,33 @@
      <string name="eink_presets_reset_all_title">Reset all presets</string>
      <string name="eink_presets_reset_all_summary">Restore every preset to its built-in default</string>
  
@@ -51,6 +51,12 @@ index 48e306c037d..0fcb5d858db 100644
 +    <string name="eink_auto_curves_reset_all_summary">Restore every curve to its built-in default</string>
 +    <string name="eink_auto_curve_reset_title">Reset this curve</string>
 +    <string name="eink_auto_curve_reset_summary">Restore this curve to its built-in default</string>
++
++    <!-- Live lux readout shown at the top of curve list / edit pages -->
++    <string name="eink_auto_live_lux_title">Current ambient</string>
++    <string name="eink_auto_live_lux_waiting">Waiting for sensor…</string>
++    <string name="eink_auto_live_lux_note_title">About these values</string>
++    <string name="eink_auto_live_lux_note_summary">These are the target values the curve would produce at the current ambient. The controller applies them gradually — lux is smoothed over 5 samples, changes smaller than 5%% are skipped, and updates happen at most once every 20 seconds — so what the lights actually do may briefly differ.</string>
 +
 +    <!-- Lux breakpoint labels (must align with EinkAutoCurves.LUX) -->
 +    <string name="eink_auto_lux_0">Dark (0 lux)</string>
@@ -67,10 +73,10 @@ index 48e306c037d..0fcb5d858db 100644
      <string name="eink_preset_default_name_1">Night</string>
 diff --git a/res/xml/eink_auto_curve_edit.xml b/res/xml/eink_auto_curve_edit.xml
 new file mode 100644
-index 00000000000..0e4a1b07db9
+index 00000000000..82b499e7dfc
 --- /dev/null
 +++ b/res/xml/eink_auto_curve_edit.xml
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,54 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!--
 +  Eight stepper rows, one per lux breakpoint from EinkAutoCurves.LUX.
@@ -80,6 +86,19 @@ index 00000000000..0e4a1b07db9
 +-->
 +<PreferenceScreen
 +    xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <!-- Live ambient lux + this curve's interpolated output for the value. -->
++    <Preference
++        android:key="eink_auto_curve_live_lux"
++        android:title="@string/eink_auto_live_lux_title"
++        android:summary="@string/eink_auto_live_lux_waiting"
++        android:selectable="false" />
++
++    <Preference
++        android:key="eink_auto_curve_live_lux_note"
++        android:title="@string/eink_auto_live_lux_note_title"
++        android:summary="@string/eink_auto_live_lux_note_summary"
++        android:selectable="false" />
 +
 +    <com.android.settings.display.eink.StepperPreference
 +        android:key="eink_auto_lux_0"
@@ -114,14 +133,29 @@ index 00000000000..0e4a1b07db9
 +</PreferenceScreen>
 diff --git a/res/xml/eink_auto_curves_list.xml b/res/xml/eink_auto_curves_list.xml
 new file mode 100644
-index 00000000000..a85e9e506f8
+index 00000000000..a8e8775231a
 --- /dev/null
 +++ b/res/xml/eink_auto_curves_list.xml
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,36 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<PreferenceScreen
 +    xmlns:android="http://schemas.android.com/apk/res/android"
 +    android:title="@string/eink_auto_curves_title">
++
++    <!-- Live ambient lux readout. Summary updates ~2x/sec from TYPE_LIGHT.
++         Shows current lux + interpolated cold/warm/kbd values so the user can
++         see the curves' live output and tune accordingly. -->
++    <Preference
++        android:key="eink_auto_curves_live_lux"
++        android:title="@string/eink_auto_live_lux_title"
++        android:summary="@string/eink_auto_live_lux_waiting"
++        android:selectable="false" />
++
++    <Preference
++        android:key="eink_auto_curves_live_lux_note"
++        android:title="@string/eink_auto_live_lux_note_title"
++        android:summary="@string/eink_auto_live_lux_note_summary"
++        android:selectable="false" />
 +
 +    <Preference android:key="eink_auto_curve_cold"
 +        android:title="@string/eink_auto_curve_cold_title"
@@ -159,10 +193,10 @@ index 4d2084f4c30..e140d20a143 100644
          android:key="eink_pref_screensaver_category"
 diff --git a/src/com/android/settings/display/eink/EinkAutoCurveDefaults.java b/src/com/android/settings/display/eink/EinkAutoCurveDefaults.java
 new file mode 100644
-index 00000000000..5377b07d092
+index 00000000000..7691881974d
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkAutoCurveDefaults.java
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,80 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -220,13 +254,35 @@ index 00000000000..5377b07d092
 +            Settings.System.putInt(cr, key(c, i), c.defaults[i]);
 +        }
 +    }
++
++    /**
++     * Linear interpolation: lux → curve value (0-100 %). Reads breakpoint values
++     * live from Settings.System so the preview reflects un-saved edits.
++     * Mirrors {@code EinkAutoCurves.interpolate} on the SystemUI side.
++     */
++    static int interpolate(ContentResolver cr, Curve c, float lux) {
++        if (lux < 0f) lux = 0f;
++        if (lux <= LUX[0]) return getValue(cr, c, 0);
++        if (lux >= LUX[LUX.length - 1]) return getValue(cr, c, LUX.length - 1);
++        for (int i = 0; i < LUX.length - 1; i++) {
++            float lo = LUX[i];
++            float hi = LUX[i + 1];
++            if (lux >= lo && lux <= hi) {
++                float t = (lux - lo) / (hi - lo);
++                int loVal = getValue(cr, c, i);
++                int hiVal = getValue(cr, c, i + 1);
++                return Math.round(loVal + t * (hiVal - loVal));
++            }
++        }
++        return getValue(cr, c, LUX.length - 1);
++    }
 +}
 diff --git a/src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java b/src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java
 new file mode 100644
-index 00000000000..e70a9efcb5c
+index 00000000000..90d9b053f8d
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkAutoCurveEditFragment.java
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,153 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -236,6 +292,10 @@ index 00000000000..e70a9efcb5c
 +
 +import android.app.AlertDialog;
 +import android.content.ContentResolver;
++import android.hardware.Sensor;
++import android.hardware.SensorEvent;
++import android.hardware.SensorEventListener;
++import android.hardware.SensorManager;
 +import android.os.Bundle;
 +
 +import androidx.preference.Preference;
@@ -247,14 +307,24 @@ index 00000000000..e70a9efcb5c
 +/**
 + * Edits a single auto-brightness curve. Eight stepper rows correspond 1:1 to
 + * {@link EinkAutoCurveDefaults#LUX}; each stepper persists its value to a
-+ * {@code eink_auto_<curve>_<lux>} key in Settings.System.
++ * {@code eink_auto_<curve>_<lux>} key in Settings.System. The first row is a
++ * live ambient-lux readout that previews this curve's interpolated output at
++ * the current sensor reading — instant feedback while editing breakpoints.
 + */
 +public class EinkAutoCurveEditFragment extends SettingsPreferenceFragment
 +        implements Preference.OnPreferenceChangeListener {
 +
 +    public static final String ARG_CURVE = "eink_auto_curve";
 +
++    private static final long UI_UPDATE_INTERVAL_MS = 500L;
++
 +    private EinkAutoCurveDefaults.Curve mCurve;
++
++    private SensorManager mSensorManager;
++    private Sensor mLightSensor;
++    private Preference mLiveLuxPref;
++    private float mLastLux = -1f;
++    private long  mLastUiUpdate = 0L;
 +
 +    @Override
 +    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -267,6 +337,11 @@ index 00000000000..e70a9efcb5c
 +                : EinkAutoCurveDefaults.Curve.COLD;
 +
 +        ContentResolver cr = getContext().getContentResolver();
++
++        mSensorManager = getContext().getSystemService(SensorManager.class);
++        mLightSensor = mSensorManager != null
++                ? mSensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) : null;
++        mLiveLuxPref = findPreference("eink_auto_curve_live_lux");
 +
 +        for (int i = 0; i < EinkAutoCurveDefaults.LUX.length; i++) {
 +            String prefKey = "eink_auto_lux_" + EinkAutoCurveDefaults.LUX[i];
@@ -286,6 +361,43 @@ index 00000000000..e70a9efcb5c
 +    }
 +
 +    @Override
++    public void onResume() {
++        super.onResume();
++        if (mSensorManager != null && mLightSensor != null) {
++            mSensorManager.registerListener(mLightListener, mLightSensor,
++                    SensorManager.SENSOR_DELAY_NORMAL);
++        } else if (mLiveLuxPref != null) {
++            mLiveLuxPref.setSummary("No ambient light sensor on this device");
++        }
++    }
++
++    @Override
++    public void onPause() {
++        super.onPause();
++        if (mSensorManager != null) mSensorManager.unregisterListener(mLightListener);
++    }
++
++    private final SensorEventListener mLightListener = new SensorEventListener() {
++        @Override
++        public void onSensorChanged(SensorEvent event) {
++            mLastLux = event.values[0];
++            long now = System.currentTimeMillis();
++            if (now - mLastUiUpdate >= UI_UPDATE_INTERVAL_MS) {
++                mLastUiUpdate = now;
++                refreshLiveLux();
++            }
++        }
++        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
++    };
++
++    private void refreshLiveLux() {
++        if (mLiveLuxPref == null || mLastLux < 0f) return;
++        int value = EinkAutoCurveDefaults.interpolate(
++                getContext().getContentResolver(), mCurve, mLastLux);
++        mLiveLuxPref.setSummary(String.format("%.1f lux  →  %d%%", mLastLux, value));
++    }
++
++    @Override
 +    public boolean onPreferenceChange(Preference preference, Object newValue) {
 +        Bundle extras = preference.getExtras();
 +        if (extras == null) return false;
@@ -293,6 +405,8 @@ index 00000000000..e70a9efcb5c
 +        if (luxIndex < 0) return false;
 +        EinkAutoCurveDefaults.setValue(getContext().getContentResolver(),
 +                mCurve, luxIndex, (Integer) newValue);
++        // Stepper change immediately reshapes the curve — refresh the preview.
++        refreshLiveLux();
 +        return true;
 +    }
 +
@@ -324,10 +438,10 @@ index 00000000000..e70a9efcb5c
 +}
 diff --git a/src/com/android/settings/display/eink/EinkAutoCurvesFragment.java b/src/com/android/settings/display/eink/EinkAutoCurvesFragment.java
 new file mode 100644
-index 00000000000..af4d8cc3a39
+index 00000000000..22312bb4305
 --- /dev/null
 +++ b/src/com/android/settings/display/eink/EinkAutoCurvesFragment.java
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,129 @@
 +/*
 + * SPDX-FileCopyrightText: 2026 @vbbot
 + * SPDX-License-Identifier: Apache-2.0
@@ -336,6 +450,11 @@ index 00000000000..af4d8cc3a39
 +package com.android.settings.display.eink;
 +
 +import android.app.AlertDialog;
++import android.content.ContentResolver;
++import android.hardware.Sensor;
++import android.hardware.SensorEvent;
++import android.hardware.SensorEventListener;
++import android.hardware.SensorManager;
 +import android.os.Bundle;
 +
 +import androidx.preference.Preference;
@@ -347,13 +466,28 @@ index 00000000000..af4d8cc3a39
 +/**
 + * Lists the three auto-brightness curves (cold, warm, keyboard). Each row opens
 + * {@link EinkAutoCurveEditFragment} with a curve-specific argument. A "Reset all"
-+ * entry restores every curve to its built-in defaults.
++ * entry restores every curve to its built-in defaults. The first row is a live
++ * lux readout that previews the current curve outputs at the active ambient
++ * level — useful for tuning the curves while observing the sensor.
 + */
 +public class EinkAutoCurvesFragment extends SettingsPreferenceFragment {
++
++    private static final long UI_UPDATE_INTERVAL_MS = 500L;
++
++    private SensorManager mSensorManager;
++    private Sensor mLightSensor;
++    private Preference mLiveLuxPref;
++    private float mLastLux = -1f;
++    private long  mLastUiUpdate = 0L;
 +
 +    @Override
 +    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
 +        setPreferencesFromResource(R.xml.eink_auto_curves_list, rootKey);
++
++        mSensorManager = getContext().getSystemService(SensorManager.class);
++        mLightSensor = mSensorManager != null
++                ? mSensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) : null;
++        mLiveLuxPref = findPreference("eink_auto_curves_live_lux");
 +
 +        Preference cold = findPreference("eink_auto_curve_cold");
 +        if (cold != null) {
@@ -377,6 +511,47 @@ index 00000000000..af4d8cc3a39
 +        }
 +    }
 +
++    @Override
++    public void onResume() {
++        super.onResume();
++        if (mSensorManager != null && mLightSensor != null) {
++            mSensorManager.registerListener(mLightListener, mLightSensor,
++                    SensorManager.SENSOR_DELAY_NORMAL);
++        } else if (mLiveLuxPref != null) {
++            mLiveLuxPref.setSummary("No ambient light sensor on this device");
++        }
++    }
++
++    @Override
++    public void onPause() {
++        super.onPause();
++        if (mSensorManager != null) mSensorManager.unregisterListener(mLightListener);
++    }
++
++    private final SensorEventListener mLightListener = new SensorEventListener() {
++        @Override
++        public void onSensorChanged(SensorEvent event) {
++            mLastLux = event.values[0];
++            long now = System.currentTimeMillis();
++            if (now - mLastUiUpdate >= UI_UPDATE_INTERVAL_MS) {
++                mLastUiUpdate = now;
++                refreshLiveLux();
++            }
++        }
++        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
++    };
++
++    private void refreshLiveLux() {
++        if (mLiveLuxPref == null || mLastLux < 0f) return;
++        ContentResolver cr = getContext().getContentResolver();
++        int cold = EinkAutoCurveDefaults.interpolate(cr, EinkAutoCurveDefaults.Curve.COLD, mLastLux);
++        int warm = EinkAutoCurveDefaults.interpolate(cr, EinkAutoCurveDefaults.Curve.WARM, mLastLux);
++        int kbd  = EinkAutoCurveDefaults.interpolate(cr, EinkAutoCurveDefaults.Curve.KBD,  mLastLux);
++        mLiveLuxPref.setSummary(String.format(
++                "%.1f lux  →  cold %d%%  ·  warm %d%%  ·  kbd %d%%",
++                mLastLux, cold, warm, kbd));
++    }
++
 +    private void confirmResetAll() {
 +        new AlertDialog.Builder(getContext())
 +                .setTitle(R.string.eink_auto_curves_reset_all_title)
@@ -386,6 +561,7 @@ index 00000000000..af4d8cc3a39
 +                    for (EinkAutoCurveDefaults.Curve c : EinkAutoCurveDefaults.Curve.values()) {
 +                        EinkAutoCurveDefaults.resetCurve(getContext().getContentResolver(), c);
 +                    }
++                    refreshLiveLux();
 +                })
 +                .show();
 +    }
