@@ -1,0 +1,89 @@
+From 40fbb4aaa93a65337e5a0d4ee8d036006368fecd Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Wed, 29 Apr 2026 12:58:20 +0200
+Subject: [PATCH] eink: silence AOSP auto-brightness in
+ AutomaticBrightnessStrategy2
+
+The previous patch only silenced the non-refactor branch in
+DisplayPowerController. With refactor_display_power_controller=true
+(the default in lineage-23.2), the strategy is invoked through
+DisplayBrightnessController instead and the patch was dead code.
+
+Move the gate to AutomaticBrightnessStrategy2.shouldUseAutoBrightness().
+Both refactor and non-refactor paths consult this method via
+isAutoBrightnessEnabled(); returning false there universally silences
+AOSP's auto-brightness regardless of which DPC code path is active.
+
+Change-Id: I2d5c8b2cb037248425f3b376c91333d0632c6efb
+---
+ .../strategy/AutomaticBrightnessStrategy.java        | 12 +++++++++++-
+ .../strategy/AutomaticBrightnessStrategy2.java       | 12 +++++++++++-
+ 2 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy.java b/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy.java
+index 3c9ba041c00f..2f8113fa1db5 100644
+--- a/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy.java
++++ b/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy.java
+@@ -25,6 +25,7 @@ import android.annotation.Nullable;
+ import android.content.Context;
+ import android.hardware.display.BrightnessConfiguration;
+ import android.os.PowerManager;
++import android.os.SystemProperties;
+ import android.os.UserHandle;
+ import android.provider.Settings;
+ import android.view.Display;
+@@ -253,9 +254,18 @@ public class AutomaticBrightnessStrategy extends AutomaticBrightnessStrategy2
+     }
+ 
+     /**
+-     * Returns if the auto-brightness of the associated display has been enabled or not
++     * Returns if the auto-brightness of the associated display has been enabled or not.
++     *
++     * <p>E-ink: when {@code ro.eink.auto_owns_brightness=true}, the SystemUI
++     * {@code EinkAutoBrightnessController} drives cold/warm/keyboard from custom
++     * inverted curves. Returning false here silences this strategy in the refactor
++     * path (DisplayBrightnessStrategySelector), matching the gate already in
++     * AutomaticBrightnessStrategy2 used by the non-refactor path.
+      */
+     public boolean shouldUseAutoBrightness() {
++        if (SystemProperties.getBoolean("ro.eink.auto_owns_brightness", false)) {
++            return false;
++        }
+         return mUseAutoBrightness;
+     }
+ 
+diff --git a/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy2.java b/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy2.java
+index 778b7b33801e..75e71654d01b 100644
+--- a/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy2.java
++++ b/services/core/java/com/android/server/display/brightness/strategy/AutomaticBrightnessStrategy2.java
+@@ -21,6 +21,7 @@ import android.annotation.Nullable;
+ import android.content.Context;
+ import android.hardware.display.BrightnessConfiguration;
+ import android.os.PowerManager;
++import android.os.SystemProperties;
+ import android.os.UserHandle;
+ import android.provider.Settings;
+ import android.view.Display;
+@@ -196,9 +197,18 @@ public class AutomaticBrightnessStrategy2 {
+     }
+ 
+     /**
+-     * Returns if the auto-brightness of the associated display has been enabled or not
++     * Returns if the auto-brightness of the associated display has been enabled or not.
++     *
++     * <p>E-ink: when {@code ro.eink.auto_owns_brightness=true}, the SystemUI
++     * {@code EinkAutoBrightnessController} drives cold/warm/keyboard from custom
++     * inverted curves and AOSP's auto-brightness must stay out of the way. Returning
++     * false here propagates through {@link #isAutoBrightnessEnabled()} and silences
++     * every path that consults this strategy — both refactor and non-refactor.
+      */
+     public boolean shouldUseAutoBrightness() {
++        if (SystemProperties.getBoolean("ro.eink.auto_owns_brightness", false)) {
++            return false;
++        }
+         return mUseAutoBrightness;
+     }
+ 
+-- 
+2.43.0
+
