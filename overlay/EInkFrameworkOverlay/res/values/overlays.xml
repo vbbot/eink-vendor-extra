@@ -14,26 +14,157 @@
     <item name="highlight_alpha_material_dark" format="float" type="dimen">0.0</item>
     <item name="highlight_alpha_material_colored" format="float" type="dimen">0.0</item>
 
-    <!-- Neutral black/white Material3 system colour palette.
-         With Monet disabled these static values take full effect: no FabricatedOverlay
-         exists to override them. -->
+    <!-- Pure B/W Material3 system colour palette — no greys, no tints. EPD has poor grey
+         ramp resolution and ages unevenly; mid-tones produce muddy fringes and persistent
+         ghosting. With Monet disabled (frameworks_base/0003) these static values take full
+         effect: no FabricatedOverlay exists to override them.
+
+         Structure on EPD comes from 2dp strokes and 1dp dividers, NOT from fill differentiation,
+         so every "surface variant" / "container" is the same white as the base surface.
+         "Variant" foreground tokens stay solid black for the same reason. -->
     <color name="system_background_light">#FFFFFFFF</color>
     <color name="system_surface_light">#FFFFFFFF</color>
     <color name="system_surface_bright_light">#FFFFFFFF</color>
-    <color name="system_surface_dim_light">#FFE8E8E8</color>
-    <color name="system_surface_variant_light">#FFE0E0E0</color>
+    <color name="system_surface_dim_light">#FFFFFFFF</color>
+    <color name="system_surface_variant_light">#FFFFFFFF</color>
     <color name="system_under_surface_light">#FFFFFFFF</color>
     <color name="system_on_surface_light">#FF000000</color>
-    <color name="system_on_surface_variant_light">#FF404040</color>
+    <color name="system_on_surface_variant_light">#FF000000</color>
     <color name="system_on_surface_inverse_light">#FFFFFFFF</color>
     <color name="system_primary_light">#FF000000</color>
     <color name="system_on_primary_light">#FFFFFFFF</color>
-    <color name="system_primary_container_light">#FFE0E0E0</color>
+    <color name="system_primary_container_light">#FFFFFFFF</color>
     <color name="system_on_primary_container_light">#FF000000</color>
     <color name="system_control_activated_light">#FF000000</color>
-    <color name="system_control_normal_light">#FF606060</color>
+    <color name="system_control_normal_light">#FF000000</color>
     <color name="system_control_highlight_light">#FF000000</color>
-    <color name="list_divider_opacity_material">#4D000000</color>
+
+    <!-- Material3 surface containers — flat white, no elevation tint.
+         The stock palette reads light-lavender (#EDEDF6 etc.) and is what the QS shade
+         chrome uses for its panel background; without these overrides the whole shade
+         renders lavender even though system_surface_light is white. -->
+    <color name="system_surface_container_lowest_light">#FFFFFFFF</color>
+    <color name="system_surface_container_low_light">#FFFFFFFF</color>
+    <color name="system_surface_container_light">#FFFFFFFF</color>
+    <color name="system_surface_container_high_light">#FFFFFFFF</color>
+    <color name="system_surface_container_highest_light">#FFFFFFFF</color>
+
+    <!-- Material3 secondary/tertiary core tokens — used by FilledTonalButton, chips, etc.
+         Tonal palettes below cover the _100/_200 container shades; these are the discrete
+         non-tonal slots. -->
+    <color name="system_secondary_light">#FF000000</color>
+    <color name="system_on_secondary_light">#FFFFFFFF</color>
+    <color name="system_secondary_container_light">#FFFFFFFF</color>
+    <color name="system_on_secondary_container_light">#FF000000</color>
+    <color name="system_tertiary_light">#FF000000</color>
+    <color name="system_on_tertiary_light">#FFFFFFFF</color>
+    <color name="system_tertiary_container_light">#FFFFFFFF</color>
+    <color name="system_on_tertiary_container_light">#FF000000</color>
+
+    <!-- Outlines — used as 1dp dividers in Material3 layouts. Solid black so they
+         read as crisp hairlines on EPD. -->
+    <color name="system_outline_light">#FF000000</color>
+    <color name="system_outline_variant_light">#FF000000</color>
+
+    <!-- Inverse surface / on_inverse — used by Snackbars, tooltips. Black bg, white text. -->
+    <color name="system_inverse_surface_light">#FF000000</color>
+    <color name="system_inverse_on_surface_light">#FFFFFFFF</color>
+    <color name="system_inverse_primary_light">#FFFFFFFF</color>
+
+    <!-- Error tokens — kept B/W, no red. Errors are communicated by icon (warning
+         triangle) or text content; coloured states age unevenly on EPD and the user's
+         aesthetic explicitly forbids non-B/W tints. -->
+    <color name="system_error_light">#FF000000</color>
+    <color name="system_on_error_light">#FFFFFFFF</color>
+    <color name="system_error_container_light">#FFFFFFFF</color>
+    <color name="system_on_error_container_light">#FF000000</color>
+
+    <!-- Monet tonal palettes — accent1/2/3 + neutral1/2.
+         Patch frameworks_base/0003 stops ThemeOverlayController from publishing a
+         FabricatedOverlay derived from wallpaper colours, but the *static* defaults in
+         frameworks/base/core/res/values/colors.xml remain blue-leaning (system_accent1_500
+         = #6476A5 etc.). Anything that resolves colorAccent / colorPrimary via the
+         legacy AppCompat path (e.g. com.android.shell BugreportWarningActivity) reads
+         the static accent1 palette directly and renders blue.
+
+         Binary cliff at _500: tones 0..400 → white (was tints/highlights), 500..1000 →
+         black (was the actual accent + dark variants). Kills every lavender/blue
+         derivation in a single sweep. The exact cliff position doesn't matter much
+         once everything is B/W — what matters is the cliff is consistent across the
+         three accent palettes so cross-references stay coherent. -->
+    <color name="system_accent1_0_light">#FFFFFFFF</color>
+    <color name="system_accent1_10_light">#FFFFFFFF</color>
+    <color name="system_accent1_50_light">#FFFFFFFF</color>
+    <color name="system_accent1_100_light">#FFFFFFFF</color>
+    <color name="system_accent1_200_light">#FFFFFFFF</color>
+    <color name="system_accent1_300_light">#FFFFFFFF</color>
+    <color name="system_accent1_400_light">#FFFFFFFF</color>
+    <color name="system_accent1_500_light">#FF000000</color>
+    <color name="system_accent1_600_light">#FF000000</color>
+    <color name="system_accent1_700_light">#FF000000</color>
+    <color name="system_accent1_800_light">#FF000000</color>
+    <color name="system_accent1_900_light">#FF000000</color>
+    <color name="system_accent1_1000_light">#FF000000</color>
+
+    <color name="system_accent2_0_light">#FFFFFFFF</color>
+    <color name="system_accent2_10_light">#FFFFFFFF</color>
+    <color name="system_accent2_50_light">#FFFFFFFF</color>
+    <color name="system_accent2_100_light">#FFFFFFFF</color>
+    <color name="system_accent2_200_light">#FFFFFFFF</color>
+    <color name="system_accent2_300_light">#FFFFFFFF</color>
+    <color name="system_accent2_400_light">#FFFFFFFF</color>
+    <color name="system_accent2_500_light">#FF000000</color>
+    <color name="system_accent2_600_light">#FF000000</color>
+    <color name="system_accent2_700_light">#FF000000</color>
+    <color name="system_accent2_800_light">#FF000000</color>
+    <color name="system_accent2_900_light">#FF000000</color>
+    <color name="system_accent2_1000_light">#FF000000</color>
+
+    <color name="system_accent3_0_light">#FFFFFFFF</color>
+    <color name="system_accent3_10_light">#FFFFFFFF</color>
+    <color name="system_accent3_50_light">#FFFFFFFF</color>
+    <color name="system_accent3_100_light">#FFFFFFFF</color>
+    <color name="system_accent3_200_light">#FFFFFFFF</color>
+    <color name="system_accent3_300_light">#FFFFFFFF</color>
+    <color name="system_accent3_400_light">#FFFFFFFF</color>
+    <color name="system_accent3_500_light">#FF000000</color>
+    <color name="system_accent3_600_light">#FF000000</color>
+    <color name="system_accent3_700_light">#FF000000</color>
+    <color name="system_accent3_800_light">#FF000000</color>
+    <color name="system_accent3_900_light">#FF000000</color>
+    <color name="system_accent3_1000_light">#FF000000</color>
+
+    <color name="system_neutral1_0_light">#FFFFFFFF</color>
+    <color name="system_neutral1_10_light">#FFFFFFFF</color>
+    <color name="system_neutral1_50_light">#FFFFFFFF</color>
+    <color name="system_neutral1_100_light">#FFFFFFFF</color>
+    <color name="system_neutral1_200_light">#FFFFFFFF</color>
+    <color name="system_neutral1_300_light">#FFFFFFFF</color>
+    <color name="system_neutral1_400_light">#FFFFFFFF</color>
+    <color name="system_neutral1_500_light">#FF000000</color>
+    <color name="system_neutral1_600_light">#FF000000</color>
+    <color name="system_neutral1_700_light">#FF000000</color>
+    <color name="system_neutral1_800_light">#FF000000</color>
+    <color name="system_neutral1_900_light">#FF000000</color>
+    <color name="system_neutral1_1000_light">#FF000000</color>
+
+    <color name="system_neutral2_0_light">#FFFFFFFF</color>
+    <color name="system_neutral2_10_light">#FFFFFFFF</color>
+    <color name="system_neutral2_50_light">#FFFFFFFF</color>
+    <color name="system_neutral2_100_light">#FFFFFFFF</color>
+    <color name="system_neutral2_200_light">#FFFFFFFF</color>
+    <color name="system_neutral2_300_light">#FFFFFFFF</color>
+    <color name="system_neutral2_400_light">#FFFFFFFF</color>
+    <color name="system_neutral2_500_light">#FF000000</color>
+    <color name="system_neutral2_600_light">#FF000000</color>
+    <color name="system_neutral2_700_light">#FF000000</color>
+    <color name="system_neutral2_800_light">#FF000000</color>
+    <color name="system_neutral2_900_light">#FF000000</color>
+    <color name="system_neutral2_1000_light">#FF000000</color>
+
+    <!-- Cards/rows use opaque hairline dividers; the 30%-alpha stock value reads as a faint
+         smudge on EPD. Solid black + thin width is the KOReader-style separator. -->
+    <color name="list_divider_opacity_material">#FF000000</color>
 
     <!-- E-Ink screensaver: register the SystemUI EinkDreamService as the device-default
          screensaver. Combined with PhoneWindowManager.startedGoingToSleep starting the dream
@@ -57,12 +188,18 @@
          chooser from appearing while preserving the recents/gesture-nav provider. -->
     <string name="config_defaultHome" translatable="false">app.inkos</string>
 
-    <!-- Quick Settings tile colours -->
+    <!-- Quick Settings tile colours.
+         Active = black fill / white text. Inactive = white fill / black text (the 2dp stroke
+         and any glyph swap is added at the layout/drawable level in the SystemUI overlay).
+         The single grey kept here is system_shade_disabled_light: in pure B/W there is no way
+         to distinguish "off" from "disabled" via colour alone, and a hatched/striped drawable
+         only reaches the few tiles that use a custom background. Light grey is the pragmatic
+         fallback so disabled tiles read as "not interactive" rather than "off". -->
     <color name="system_shade_active_light">#FF000000</color>
-    <color name="system_shade_inactive_light">#FFE0E0E0</color>
+    <color name="system_shade_inactive_light">#FFFFFFFF</color>
     <color name="system_shade_disabled_light">#FFCCCCCC</color>
     <color name="system_on_shade_active_light">#FFFFFFFF</color>
-    <color name="system_on_shade_active_variant_light">#FFE0E0E0</color>
+    <color name="system_on_shade_active_variant_light">#FFFFFFFF</color>
     <color name="system_on_shade_inactive_light">#FF000000</color>
-    <color name="system_on_shade_inactive_variant_light">#FF404040</color>
+    <color name="system_on_shade_inactive_variant_light">#FF000000</color>
 </resources>

@@ -1,0 +1,193 @@
+From 0f953f7c1eff0d4668ddb60c79108b7b21ddf16f Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Thu, 30 Apr 2026 13:45:30 +0200
+Subject: [PATCH] eink: add reusable card / pill / square-checkbox drawables
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Stage 0 of the system-wide e-ink UI overhaul: ship the shared
+KOReader-style B/W primitives that every later overlay (status bar,
+shade, Settings, dialogs) will consume, sibling to the existing
+bg_eink_button.xml + eink_button_text.xml + divider_eink.xml set.
+
+- bg_eink_card.xml: 16dp rounded white container with 2dp black stroke.
+  Wraps a vertical group of preference rows; rows are separated with
+  the existing divider_eink.xml drawable.
+- bg_eink_pill.xml + eink_pill_text.xml: fully rounded pill state-list
+  for assignment/value indicators (e.g. "Long Press Recents", "AUTO
+  ON"). Filled black when checked/selected/pressed, white with 2dp
+  stroke otherwise. Companion text colour flips white/black.
+- btn_eink_check.xml + ic_eink_check_on.xml + ic_eink_check_off.xml:
+  square-checkbox state-list. Off = hollow 20dp square with 2dp stroke.
+  On = filled black 20dp square with the white Material check glyph
+  inside. Both centered inside a 24dp viewport so toggling does not
+  shift the visual position.
+
+bg_eink_button (6dp corners) remains the right pick for button-shaped
+controls (Center overlay, refresh-mode buttons); bg_eink_pill is the
+right pick when the shape needs to read as a label/badge.
+
+These all live in SystemUI source — when the Settings / shade overlays
+need them they will be duplicated locally rather than pulled across
+package boundaries.
+
+Change-Id: I7b09cec4fcc2e10d3b9d0a9897c740b032e5e54b
+---
+ .../SystemUI/res/color/eink_pill_text.xml     |  8 ++++
+ .../SystemUI/res/drawable/bg_eink_card.xml    | 13 +++++++
+ .../SystemUI/res/drawable/bg_eink_pill.xml    | 39 +++++++++++++++++++
+ .../SystemUI/res/drawable/btn_eink_check.xml  | 12 ++++++
+ .../res/drawable/ic_eink_check_off.xml        | 15 +++++++
+ .../res/drawable/ic_eink_check_on.xml         | 17 ++++++++
+ 6 files changed, 104 insertions(+)
+ create mode 100644 packages/SystemUI/res/color/eink_pill_text.xml
+ create mode 100644 packages/SystemUI/res/drawable/bg_eink_card.xml
+ create mode 100644 packages/SystemUI/res/drawable/bg_eink_pill.xml
+ create mode 100644 packages/SystemUI/res/drawable/btn_eink_check.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_check_off.xml
+ create mode 100644 packages/SystemUI/res/drawable/ic_eink_check_on.xml
+
+diff --git a/packages/SystemUI/res/color/eink_pill_text.xml b/packages/SystemUI/res/color/eink_pill_text.xml
+new file mode 100644
+index 000000000000..e81dac3b5143
+--- /dev/null
++++ b/packages/SystemUI/res/color/eink_pill_text.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Text colour companion for @drawable/bg_eink_pill. -->
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_checked="true" android:color="#FFFFFFFF" />
++    <item android:state_selected="true" android:color="#FFFFFFFF" />
++    <item android:state_pressed="true" android:color="#FFFFFFFF" />
++    <item android:color="#FF000000" />
++</selector>
+diff --git a/packages/SystemUI/res/drawable/bg_eink_card.xml b/packages/SystemUI/res/drawable/bg_eink_card.xml
+new file mode 100644
+index 000000000000..eaaf01bdb494
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/bg_eink_card.xml
+@@ -0,0 +1,13 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  Pure black/white card container for grouped settings rows on EPD.
++  16dp rounded corners, white fill, 2dp black stroke. Wrap a vertical
++  LinearLayout of rows in this drawable; separate the rows with
++  @drawable/divider_eink (1dp height).
++-->
++<shape xmlns:android="http://schemas.android.com/apk/res/android"
++    android:shape="rectangle">
++    <solid android:color="#FFFFFFFF" />
++    <stroke android:width="2dp" android:color="#FF000000" />
++    <corners android:radius="16dp" />
++</shape>
+diff --git a/packages/SystemUI/res/drawable/bg_eink_pill.xml b/packages/SystemUI/res/drawable/bg_eink_pill.xml
+new file mode 100644
+index 000000000000..7087e3306c2f
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/bg_eink_pill.xml
+@@ -0,0 +1,39 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  Pure black/white pill background for assignment / value indicators
++  (e.g. "Long Press Recents", "AUTO ON"). Fully rounded ends via a very
++  large corner radius so the shape stays pill-shaped at any height.
++  - state_checked / state_selected / state_pressed: solid black fill
++  - default:                                        white fill + 2dp stroke
++  Pair with @color/eink_pill_text so the text colour flips in step.
++
++  bg_eink_button (6dp corners) is the right pick for button-shaped controls;
++  this is the right pick when the shape needs to read as a label/badge.
++-->
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_checked="true">
++        <shape android:shape="rectangle">
++            <solid android:color="#FF000000" />
++            <corners android:radius="999dp" />
++        </shape>
++    </item>
++    <item android:state_selected="true">
++        <shape android:shape="rectangle">
++            <solid android:color="#FF000000" />
++            <corners android:radius="999dp" />
++        </shape>
++    </item>
++    <item android:state_pressed="true">
++        <shape android:shape="rectangle">
++            <solid android:color="#FF000000" />
++            <corners android:radius="999dp" />
++        </shape>
++    </item>
++    <item>
++        <shape android:shape="rectangle">
++            <solid android:color="#FFFFFFFF" />
++            <stroke android:width="2dp" android:color="#FF000000" />
++            <corners android:radius="999dp" />
++        </shape>
++    </item>
++</selector>
+diff --git a/packages/SystemUI/res/drawable/btn_eink_check.xml b/packages/SystemUI/res/drawable/btn_eink_check.xml
+new file mode 100644
+index 000000000000..4a8f8a738255
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/btn_eink_check.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  Square checkbox state-list for boolean preference rows.
++  Use as the button drawable on a CheckBox / Checkable view:
++      <CheckBox android:button="@drawable/btn_eink_check" />
++  Foreground is opaque so no tint is needed; clear any default button tint
++  the parent theme applies, e.g. android:buttonTint="@android:color/transparent".
++-->
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_checked="true" android:drawable="@drawable/ic_eink_check_on" />
++    <item android:drawable="@drawable/ic_eink_check_off" />
++</selector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_check_off.xml b/packages/SystemUI/res/drawable/ic_eink_check_off.xml
+new file mode 100644
+index 000000000000..9ee8e49f8525
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_check_off.xml
+@@ -0,0 +1,15 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Hollow square — unchecked state of @drawable/btn_eink_check.
++     20dp visual square inset by 2dp on each side of the 24dp viewport,
++     2dp black stroke, transparent fill. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:strokeColor="#FF000000"
++        android:strokeWidth="2"
++        android:fillColor="#00000000"
++        android:pathData="M2,2 L22,2 L22,22 L2,22 z" />
++</vector>
+diff --git a/packages/SystemUI/res/drawable/ic_eink_check_on.xml b/packages/SystemUI/res/drawable/ic_eink_check_on.xml
+new file mode 100644
+index 000000000000..5e573de7becf
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/ic_eink_check_on.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Filled black square with white check glyph — checked state of
++     @drawable/btn_eink_check. Square is 20dp inset to match
++     ic_eink_check_off so the visual position doesn't shift on toggle.
++     Check path is the AOSP Material check, centered in the inset square. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M2,2 L22,2 L22,22 L2,22 z" />
++    <path
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M9.55,17.6 L4.5,12.55 L6.05,11 L9.55,14.5 L17.55,6.5 L19.1,8.05 z" />
++</vector>
+-- 
+2.43.0
+
