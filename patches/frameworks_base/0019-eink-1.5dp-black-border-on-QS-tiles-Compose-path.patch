@@ -1,0 +1,59 @@
+From 48e3569f614082dbdfdce43a961682fb7fd8b204 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Thu, 30 Apr 2026 19:39:52 +0200
+Subject: [PATCH] eink: 1.5dp black border on QS tiles (Compose path)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Stage 2 Phase A. Inactive QS tiles flipped to white in Stage 0 but had
+no border, leaving them as floating labels against the white shade
+background. Add a permanent 1.5dp black border around every tile so
+the inactive shape reads as a KOReader-style outlined pill — and
+disappears into the fill when the tile is active (black on black).
+
+Mechanism: Modifier.border(1.5.dp, Color.Black, tileShape) added to
+the modifier chain in qs/panels/ui/compose/infinitegrid/Tile.kt where
+TileExpandable is called, alongside the existing borderOnFocus helper.
+The border tracks the same animated tileShape so squish-during-press
+and corner radius transitions work as expected.
+
+Two earlier attempts modified XML drawables (qs_tile_background.xml /
+qs_tile_background_shape.xml) wired through QSTileViewImpl. The XML
+path is dead on this build — the active renderer is the Compose Tile
+composable, not QSTileViewImpl. Confirmed by patching the XML with
+debug colours (light blue solid + 6dp red stroke), which compiled into
+the on-device APK but produced zero visible change. Tile.kt is the
+correct file.
+
+Change-Id: I328a8f0b47e594cd3fa6d8d4fc24b8da40390553
+---
+ .../systemui/qs/panels/ui/compose/infinitegrid/Tile.kt       | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/panels/ui/compose/infinitegrid/Tile.kt b/packages/SystemUI/src/com/android/systemui/qs/panels/ui/compose/infinitegrid/Tile.kt
+index 1d254bff91a3..8a4cbb1e2e9d 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/panels/ui/compose/infinitegrid/Tile.kt
++++ b/packages/SystemUI/src/com/android/systemui/qs/panels/ui/compose/infinitegrid/Tile.kt
+@@ -28,6 +28,7 @@ import androidx.compose.animation.animateColorAsState
+ import androidx.compose.animation.core.animateDpAsState
+ import androidx.compose.foundation.ExperimentalFoundationApi
+ import androidx.compose.foundation.background
++import androidx.compose.foundation.border
+ import androidx.compose.foundation.combinedClickable
+ import androidx.compose.foundation.gestures.Orientation
+ import androidx.compose.foundation.interaction.MutableInteractionSource
+@@ -224,6 +225,10 @@ fun ContentScope.Tile(
+                 modifier
+                     .then(surfaceRevealModifier)
+                     .borderOnFocus(color = MaterialTheme.colorScheme.secondary, tileShape.topEnd)
++                    // E-Ink: 2dp permanent black border so inactive tiles read as
++                    // outlined pills against the white shade. On active (black-fill)
++                    // tiles the border merges into the fill and is invisible.
++                    .border(width = 1.5.dp, color = Color.Black, shape = tileShape)
+                     .fillMaxWidth()
+                     .thenIf(currentBounceableInfo != null) {
+                         Modifier.bounceable(
+-- 
+2.43.0
+
