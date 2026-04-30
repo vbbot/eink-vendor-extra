@@ -1,0 +1,4 @@
+runtime_resource_overlay {
+    name: "EInkSystemUIOverlay",
+    product_specific: true,
+}

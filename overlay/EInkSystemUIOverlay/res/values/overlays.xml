@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  EInkSystemUIOverlay — RRO targeting com.android.systemui for E-Ink-specific
+  surface tweaks that the framework-level token flips in EInkFrameworkOverlay
+  cannot reach (SystemUI-private resources, layout-side dimens, etc.).
+
+  Currently empty: as of Stage 1 of the system-wide e-ink overhaul, every
+  visible SystemUI surface in our test screenshots already renders correctly
+  thanks to the system_* token flips in EInkFrameworkOverlay. This overlay
+  exists as the landing pad for Stage 2 (status bar icon set, QS tile
+  borders, notification shade) and Stage 4 (volume dialog, power menu)
+  overrides — adding it now means those stages won't need to touch the
+  product makefile or the overlay scaffold.
+-->
+<resources>
+</resources>

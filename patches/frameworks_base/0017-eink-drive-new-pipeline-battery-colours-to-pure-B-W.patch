@@ -1,0 +1,121 @@
+From 85ffb75ea63efcc67cf959f6003cbb0961e29b52 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Thu, 30 Apr 2026 14:32:20 +0200
+Subject: [PATCH] eink: drive new-pipeline battery colours to pure B/W
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The new unified status-bar battery rendering path
+(NewStatusBarIcons / BatteryColors) hardcodes Material colour
+constants in Kotlin — Color.parseColor("#34A853") for charging,
+"#FBBC04" for battery-saver, "#EA4335" for low battery, plus
+GM Gray 500/600 for the meter level. None are reachable from
+RRO; framework-res system_* token flips do not apply here.
+
+Drive every fill variant in LightThemeColors / DarkThemeColors
+to pure black/white. State that AOSP communicates via colour
+is communicated on E-Ink by:
+
+  - the lightning-bolt accessory drawable (charging)
+  - the level-bar height itself (low battery)
+  - the system notification path (battery-saver, critical)
+
+EPD has no useful colour reproduction and ages unevenly with
+sustained green/yellow/red pixels — a coloured battery icon
+both reads as muddy and burns into the panel over time. The
+legacy ThemedBatteryDrawable colour-levels path is already
+neutral after Stage 0 (?android:attr/colorError now resolves
+to #000 via the system_error_light override).
+
+Change-Id: I44fd33ad308bec0dd6f02c3e50ea990783992db1
+---
+ .../battery/unified/BatteryDrawableState.kt   | 66 ++++++++++---------
+ 1 file changed, 36 insertions(+), 30 deletions(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/unified/BatteryDrawableState.kt b/packages/SystemUI/src/com/android/systemui/battery/unified/BatteryDrawableState.kt
+index 9f594feb03ab..f9559043929b 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/unified/BatteryDrawableState.kt
++++ b/packages/SystemUI/src/com/android/systemui/battery/unified/BatteryDrawableState.kt
+@@ -102,42 +102,48 @@ sealed interface BatteryColors {
+     /** Error colors are used for low battery states typically */
+     val errorFill: Int
+ 
+-    /** Color scheme appropriate for light mode (dark icons) */
++    /** Color scheme appropriate for light mode (dark icons).
++     *
++     * E-Ink: pure B/W. The frame stroke is opaque black, the unfilled meter
++     * background is opaque white (matches the white status bar so the empty
++     * portion reads as a clean cutout above the level bar), and every fill
++     * variant — normal, charging, battery-saver, low-battery — is the same
++     * solid black. State that AOSP communicates via colour (green=charging,
++     * yellow=battery-saver, red=low-battery) is communicated on E-Ink by:
++     *   - the separate lightning-bolt accessory drawable (charging),
++     *   - the level-bar height itself (low battery),
++     *   - and the system notification path (battery-saver / critical).
++     * EPD has no useful colour reproduction and ages unevenly with sustained
++     * green/yellow/red pixels, so colour-coded battery state would both look
++     * muddy and burn into the panel over time. */
+     data object LightThemeColors : BatteryColors {
+         override val fg = Color.BLACK
+-        // 22% alpha white
+-        override val bg: Int = Color.valueOf(1f, 1f, 1f, 0.22f).toArgb()
+-
+-        // GM Gray 500
+-        override val fill = Color.parseColor("#9AA0A6")
+-        // GM Gray 600
+-        override val fillOnly = Color.parseColor("#80868B")
+-
+-        // GM Green 500
+-        override val activeFill = Color.parseColor("#34A853")
+-        // GM Yellow 500
+-        override val warnFill = Color.parseColor("#FBBC04")
+-        // GM Red 500
+-        override val errorFill = Color.parseColor("#EA4335")
++        override val bg: Int = Color.WHITE
++
++        override val fill = Color.BLACK
++        override val fillOnly = Color.BLACK
++
++        override val activeFill = Color.BLACK
++        override val warnFill = Color.BLACK
++        override val errorFill = Color.BLACK
+     }
+ 
+-    /** Color scheme appropriate for dark mode (light icons) */
++    /** Color scheme appropriate for dark mode (light icons).
++     *
++     * E-Ink: device should never run in dark mode (white-on-black causes
++     * heavy ghosting on EPD), but kept as a B/W mirror of the light scheme
++     * for safety in case dark mode is toggled. Same rationale as
++     * [LightThemeColors] above. */
+     data object DarkThemeColors : BatteryColors {
+         override val fg = Color.WHITE
+-        // 18% alpha black
+-        override val bg: Int = Color.valueOf(0f, 0f, 0f, 0.18f).toArgb()
+-
+-        // GM Gray 700
+-        override val fill = Color.parseColor("#5F6368")
+-        // GM Gray 400
+-        override val fillOnly = Color.parseColor("#BDC1C6")
+-
+-        // GM Green 700
+-        override val activeFill = Color.parseColor("#188038")
+-        // GM Yellow 700
+-        override val warnFill = Color.parseColor("#F29900")
+-        // GM Red 700
+-        override val errorFill = Color.parseColor("#C5221F")
++        override val bg: Int = Color.BLACK
++
++        override val fill = Color.WHITE
++        override val fillOnly = Color.WHITE
++
++        override val activeFill = Color.WHITE
++        override val warnFill = Color.WHITE
++        override val errorFill = Color.WHITE
+     }
+ 
+     companion object {
+-- 
+2.43.0
+

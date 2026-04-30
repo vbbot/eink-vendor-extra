@@ -1,0 +1,94 @@
+From 735f9b9aa4af50bcaa0758a608ff67c0378a9c9c Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Thu, 30 Apr 2026 14:57:49 +0200
+Subject: [PATCH] eink: drive Compose-pipeline battery colours to pure B/W
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The previous patch flipped colours on BatteryDrawableState (the
+pre-Compose unified rendering), but that path is gated by the
+new_status_bar_icons aconfig flag which is unset on this build —
+defaults to disabled, so that file is dead code today.
+
+The actually-live battery rendering on this build is the Compose
+pipeline at statusbar/pipeline/battery/shared/ui/BatteryColors.kt.
+Same set of hardcoded colours (Charging=#18CC47 green, Error=#FF0E01
+red, PowerSave=#FFC917 yellow), same fix: drive them to pure black
+in LightTheme and pure white in DarkTheme. State communicated via
+the layered glyph (lightning bolt / '+' overlay), level-bar height,
+and the system notification path.
+
+The faint-grey level-meter backgrounds (lowAlphaBg = 20% black,
+highAlphaBg = 55% black) are deliberately kept as alpha-on-white.
+Strict B/W would flip them opaque white, but then the unfilled
+portion of the meter vanishes against the white status bar and the
+level becomes unreadable. Same pragmatic exception as the disabled
+QS tile grey from Stage 0 — localised to a small icon.
+
+The previous BatteryDrawableState patch is kept as defensive
+coverage for if/when the aconfig flag flips on upstream.
+
+Change-Id: Ic866dcc916dd63cc8d055ca39da3b17e984a1e87
+---
+ .../battery/shared/ui/BatteryColors.kt        | 23 ++++++++++++++-----
+ 1 file changed, 17 insertions(+), 6 deletions(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/shared/ui/BatteryColors.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/shared/ui/BatteryColors.kt
+index a1675766ba04..2c19bf1c0b92 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/shared/ui/BatteryColors.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/shared/ui/BatteryColors.kt
+@@ -63,16 +63,24 @@ sealed interface BatteryColors {
+             override val backgroundWithGlyph = highAlphaBg
+         }
+ 
++        // E-Ink: drop the green/red/yellow level fills — EPD has no useful colour
++        // reproduction and ages unevenly with sustained green/red/yellow pixels. State
++        // is communicated by the layered glyph/attribution (lightning bolt while
++        // charging, '+' while battery-saver), the level-bar height itself, and the
++        // system notification path for critical battery. The faint-grey backgrounds
++        // (lowAlphaBg / highAlphaBg) are kept — they are local to a small icon and
++        // provide the "unfilled portion" cue that pure white would erase against the
++        // white status bar; same pragmatic exception we made for disabled QS tiles.
+         data object Charging : LightTheme() {
+-            override val fill = Color(0xFF18CC47)
++            override val fill = Color.Black
+         }
+ 
+         data object Error : LightTheme() {
+-            override val fill = Color(0xFFFF0E01)
++            override val fill = Color.Black
+         }
+ 
+         data object PowerSave : LightTheme() {
+-            override val fill = Color(0xFFFFC917)
++            override val fill = Color.Black
+         }
+ 
+         companion object {
+@@ -99,16 +107,19 @@ sealed interface BatteryColors {
+             override val fill = Color.White
+         }
+ 
++        // E-Ink: same B/W rationale as LightTheme above. Dark theme should never run
++        // on EPD (white-on-black ghosts heavily) but kept consistent for safety in
++        // case dark mode is toggled.
+         data object Charging : DarkTheme() {
+-            override val fill = Color(0xFF18CC47)
++            override val fill = Color.White
+         }
+ 
+         data object Error : DarkTheme() {
+-            override val fill = Color(0xFFFF0E01)
++            override val fill = Color.White
+         }
+ 
+         data object PowerSave : DarkTheme() {
+-            override val fill = Color(0xFFFFC917)
++            override val fill = Color.White
+         }
+ 
+         companion object {
+-- 
+2.43.0
+
