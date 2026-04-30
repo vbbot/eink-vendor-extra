@@ -51,6 +51,12 @@
          natively without needing a low-power AOD mode. -->
     <string name="config_dozeComponent" translatable="false">com.android.systemui/com.android.systemui.eink.screensaver.EinkDreamService</string>
 
+    <!-- Default home: pin RoleManager's HOME default to inkOS so on first boot
+         RoleControllerService grants the HOME role to app.inkos. With Launcher3QuickStep
+         still installed (it owns config_recentsComponentName), this prevents the launcher
+         chooser from appearing while preserving the recents/gesture-nav provider. -->
+    <string name="config_defaultHome" translatable="false">app.inkos</string>
+
     <!-- Quick Settings tile colours -->
     <color name="system_shade_active_light">#FF000000</color>
     <color name="system_shade_inactive_light">#FFE0E0E0</color>

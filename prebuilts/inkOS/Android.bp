@@ -1,0 +1,20 @@
+// inkOS is the *default* home, not the *only* home: Launcher3QuickStep stays
+// installed because it owns the recents/QuickStep RecentsActivity that
+// `config_recentsComponentName` (frameworks-res config.xml) points to. Removing
+// Launcher3QuickStep also breaks Settings → System → Gestures (gesture-nav UI
+// is gated on the recents provider being present). Default-home selection is
+// instead handled by RoleManager: roles.xml gives the HOME role a
+// `defaultHolders="config_defaultHome"` attribute, and frameworks-res defines
+// `config_defaultHome=app.inkos`. RoleControllerService picks up that default
+// at first boot and writes the corresponding preferred-activity entry, so the
+// system never shows a launcher chooser.
+android_app_import {
+    name: "inkOSLauncher",
+    apk: "inkOS.apk",
+    presigned: true,
+    preprocessed: true,
+    product_specific: true,
+    dex_preopt: {
+        enabled: false,
+    },
+}

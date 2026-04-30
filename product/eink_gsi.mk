@@ -2,6 +2,17 @@ PRODUCT_PACKAGES += \
     EInkFrameworkOverlay \
     vendor.vbbot.eink-service
 
+# inkOS launcher (default home) and Pastiera physical-keyboard IME (default IME).
+# Installed as non-privileged prebuilt system apps under /product/app/. inkOS is
+# selected as default home via RoleManager defaultHolders=config_defaultHome
+# (see EInkFrameworkOverlay overlays.xml + the framework_base/Permission patches);
+# Launcher3QuickStep stays installed because it owns config_recentsComponentName.
+# Pastiera overrides LatinIME so it is the only IME present and the framework
+# auto-enables it as the default InputMethodService on first boot.
+PRODUCT_PACKAGES += \
+    inkOSLauncher \
+    Pastiera
+
 PRODUCT_PRIVATE_SEPOLICY_DIRS += vendor/eink/sepolicy
 
 # E-ink: SystemUI's EinkAutoBrightnessController owns auto-brightness with custom

@@ -1,0 +1,31 @@
+From 15e8fe846ed0329e9319d8b33f06d5c89a91c9b0 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Wed, 29 Apr 2026 19:00:29 +0200
+Subject: [PATCH] roles: wire HOME role to config_defaultHome resource
+
+Adds defaultHolders="config_defaultHome" to android.app.role.HOME so
+RoleControllerService grants the HOME role to whatever package is named
+in framework-res `config_defaultHome` on first boot. Empty by default
+(no behavior change unless a product overlay sets the resource), which
+matches the SMS/dialer/browser pattern that already lives in this file.
+
+Change-Id: I3ab53130709ed270c3ce86f474d6393d00253a27
+---
+ PermissionController/res/xml/roles.xml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/PermissionController/res/xml/roles.xml b/PermissionController/res/xml/roles.xml
+index 1ea3f27432..c3b04b64e7 100644
+--- a/PermissionController/res/xml/roles.xml
++++ b/PermissionController/res/xml/roles.xml
+@@ -436,6 +436,7 @@
+     <role
+         name="android.app.role.HOME"
+         behavior="HomeRoleBehavior"
++        defaultHolders="config_defaultHome"
+         description="@string/role_home_description"
+         exclusive="true"
+         exclusivity="user"
+-- 
+2.43.0
+

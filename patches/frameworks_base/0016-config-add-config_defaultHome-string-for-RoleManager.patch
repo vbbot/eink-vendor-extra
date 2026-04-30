@@ -1,0 +1,32 @@
+From 57e4bf52910e9d5c685ca6d827531022ebe9972b Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Wed, 29 Apr 2026 19:00:16 +0200
+Subject: [PATCH] config: add config_defaultHome string for RoleManager HOME
+ default
+
+Empty by default in framework-res; product overlays may set it to a
+package name that should hold android.app.role.HOME on first boot. Used
+by PermissionController/role-controller after the matching
+defaultHolders="config_defaultHome" is added to the HOME role.
+
+Change-Id: I5e761baaf57d9ad3b0c902dc4828d0af1ccb0b42
+---
+ core/res/res/values/config.xml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+index fbe4c3280e49..1451c545a05a 100644
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -2486,6 +2486,8 @@
+     <bool name="config_showDefaultEmergency">false</bool>
+     <!-- Whether the default home settings should be shown. -->
+     <bool name="config_showDefaultHome">true</bool>
++    <!-- The name of the package that will hold the home role by default. -->
++    <string name="config_defaultHome" translatable="false"></string>
+     <!-- The name of the package that will hold the call redirection role by default. -->
+     <string name="config_defaultCallRedirection" translatable="false"></string>
+     <!-- The name of the package that will hold the call screening role by default. -->
+-- 
+2.43.0
+

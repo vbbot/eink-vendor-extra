@@ -1,0 +1,13 @@
+android_app_import {
+    name: "Pastiera",
+    apk: "Pastiera.apk",
+    presigned: true,
+    preprocessed: true,
+    product_specific: true,
+    overrides: [
+        "LatinIME",
+    ],
+    dex_preopt: {
+        enabled: false,
+    },
+}
