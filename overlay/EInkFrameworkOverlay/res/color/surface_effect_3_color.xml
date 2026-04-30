@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E-Ink: surface_effect_* tokens are alpha-graded "elevation tints" derived
+  from system_accent1_600 (now black post-Stage 0). On a white surface they
+  render as light-grey overlays that read muddy on EPD and conflict with the
+  pure B/W aesthetic. The most visible consumer of surface_effect_3 is the
+  notification expand-button pill (Notification.bindExpandButton →
+  protectionColor → surface_effect_3); making it transparent collapses the
+  pill to its underlying notification background (white), so only the
+  chevron icon remains as the affordance — clean and consistent with the
+  shade.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@android:color/transparent" />
+</selector>

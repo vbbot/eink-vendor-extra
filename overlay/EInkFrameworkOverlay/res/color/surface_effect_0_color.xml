@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E-Ink: see surface_effect_3_color.xml for full rationale. surface_effect_0
+  is consumed by SystemUI's pin_bouncer_action_button_bg; making it
+  transparent gives the PIN keypad action buttons a clean white background
+  (the bouncer surface) instead of a faint grey tint.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@android:color/transparent" />
+</selector>
