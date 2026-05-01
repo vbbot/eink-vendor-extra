@@ -1,0 +1,194 @@
+From 7822b7bd7734f1a90cce8574fee5ecf4af092061 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Fri, 1 May 2026 22:36:41 +0200
+Subject: [PATCH] AospThemeImpl: use Integer.MIN_VALUE sentinel instead of -1
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replace the -1 sentinel used by every "is this colour field initialised"
+field/assertion in AospThemeImpl with Integer.MIN_VALUE.
+
+Stock Dialer initialises each colour field to -1 and asserts != -1 in
+the corresponding getter. On EPD-themed builds many of the underlying
+@android:color/system_accent*_* / system_neutral*_* tonal palette tokens
+are flipped to pure white (#FFFFFFFF) for the high-contrast B/W
+aesthetic. #FFFFFFFF interpreted as a signed Java int is exactly -1, so
+when the constructor reads e.g. system_accent2_200 (the source for
+colorCallNotificationBackground) the field is set to -1 and the
+subsequent assertion treats valid white as "uninitialised" and throws
+IllegalArgumentException. The dialer process crashes immediately on
+incoming calls (StatusBarNotifier.buildAndSendNotification path) and
+the call-screen never appears.
+
+Integer.MIN_VALUE (0x80000000 — alpha=0x80, RGB=0) is never a colour
+an XML resource would intentionally specify, so it's a safe sentinel
+that no valid resolved colour can collide with.
+
+Change-Id: Ieb4da2606f4b844a616648815788efd88853055f
+---
+ .../dialer/theme/base/impl/AospThemeImpl.java | 89 +++++++++++--------
+ 1 file changed, 51 insertions(+), 38 deletions(-)
+
+diff --git a/java/com/android/dialer/theme/base/impl/AospThemeImpl.java b/java/com/android/dialer/theme/base/impl/AospThemeImpl.java
+index 02d7022af..e75fdb977 100644
+--- a/java/com/android/dialer/theme/base/impl/AospThemeImpl.java
++++ b/java/com/android/dialer/theme/base/impl/AospThemeImpl.java
+@@ -36,20 +36,33 @@ import javax.inject.Singleton;
+ @Singleton
+ public class AospThemeImpl implements Theme {
+ 
+-  private int colorIcon = -1;
+-  private int colorIconSecondary = -1;
+-  private int colorPrimary = -1;
+-  private int colorPrimaryDark = -1;
+-  private int colorAccent = -1;
+-  private int textColorPrimary = -1;
+-  private int textColorSecondary = -1;
+-  private int textColorPrimaryInverse = -1;
+-  private int textColorHint = -1;
+-  private int colorBackground = -1;
+-  private int colorBackgroundFloating = -1;
+-  private int colorTextOnUnthemedDarkBackground = -1;
+-  private int colorIconOnUnthemedDarkBackground = -1;
+-  private int colorCallNotificationBackground = -1;
++  /**
++   * Sentinel for "this colour field has not been initialised by the constructor yet".
++   *
++   * Stock Dialer uses -1, but on EPD-themed builds many of the underlying
++   * @android:color/system_accent*_* / system_neutral*_* tonal palette tokens
++   * are flipped to pure white (#FFFFFFFF). #FFFFFFFF interpreted as a signed
++   * Java int IS -1, so the assertions below would treat valid white as
++   * "uninitialised" and fail. Integer.MIN_VALUE (0x80000000 — alpha=0x80,
++   * RGB=0) is never a colour an XML resource would intentionally specify,
++   * so it's a safe sentinel.
++   */
++  private static final int UNSET = Integer.MIN_VALUE;
++
++  private int colorIcon = UNSET;
++  private int colorIconSecondary = UNSET;
++  private int colorPrimary = UNSET;
++  private int colorPrimaryDark = UNSET;
++  private int colorAccent = UNSET;
++  private int textColorPrimary = UNSET;
++  private int textColorSecondary = UNSET;
++  private int textColorPrimaryInverse = UNSET;
++  private int textColorHint = UNSET;
++  private int colorBackground = UNSET;
++  private int colorBackgroundFloating = UNSET;
++  private int colorTextOnUnthemedDarkBackground = UNSET;
++  private int colorIconOnUnthemedDarkBackground = UNSET;
++  private int colorCallNotificationBackground = UNSET;
+ 
+   public AospThemeImpl(Context context) {
+ 
+@@ -76,20 +89,20 @@ public class AospThemeImpl implements Theme {
+                   R.attr.colorIconOnUnthemedDarkBackground,
+                   R.attr.colorCallNotificationBackground
+                 });
+-    colorPrimary = array.getColor(/* index= */ 0, /* defValue= */ -1);
+-    colorPrimaryDark = array.getColor(/* index= */ 1, /* defValue= */ -1);
+-    colorAccent = array.getColor(/* index= */ 2, /* defValue= */ -1);
+-    textColorPrimary = array.getColor(/* index= */ 3, /* defValue= */ -1);
+-    textColorSecondary = array.getColor(/* index= */ 4, /* defValue= */ -1);
+-    textColorPrimaryInverse = array.getColor(/* index= */ 5, /* defValue= */ -1);
+-    textColorHint = array.getColor(/* index= */ 6, /* defValue= */ -1);
+-    colorBackground = array.getColor(/* index= */ 7, /* defValue= */ -1);
+-    colorBackgroundFloating = array.getColor(/* index= */ 8, /* defValue= */ -1);
+-    colorIcon = array.getColor(/* index= */ 9, /* defValue= */ -1);
+-    colorIconSecondary = array.getColor(/* index= */ 10, /* defValue= */ -1);
+-    colorTextOnUnthemedDarkBackground = array.getColor(/* index= */ 11, /* defValue= */ -1);
+-    colorIconOnUnthemedDarkBackground = array.getColor(/* index= */ 12, /* defValue= */ -1);
+-    colorCallNotificationBackground = array.getColor(/* index= */ 13, /* defValue= */ -1);
++    colorPrimary = array.getColor(/* index= */ 0, /* defValue= */ UNSET);
++    colorPrimaryDark = array.getColor(/* index= */ 1, /* defValue= */ UNSET);
++    colorAccent = array.getColor(/* index= */ 2, /* defValue= */ UNSET);
++    textColorPrimary = array.getColor(/* index= */ 3, /* defValue= */ UNSET);
++    textColorSecondary = array.getColor(/* index= */ 4, /* defValue= */ UNSET);
++    textColorPrimaryInverse = array.getColor(/* index= */ 5, /* defValue= */ UNSET);
++    textColorHint = array.getColor(/* index= */ 6, /* defValue= */ UNSET);
++    colorBackground = array.getColor(/* index= */ 7, /* defValue= */ UNSET);
++    colorBackgroundFloating = array.getColor(/* index= */ 8, /* defValue= */ UNSET);
++    colorIcon = array.getColor(/* index= */ 9, /* defValue= */ UNSET);
++    colorIconSecondary = array.getColor(/* index= */ 10, /* defValue= */ UNSET);
++    colorTextOnUnthemedDarkBackground = array.getColor(/* index= */ 11, /* defValue= */ UNSET);
++    colorIconOnUnthemedDarkBackground = array.getColor(/* index= */ 12, /* defValue= */ UNSET);
++    colorCallNotificationBackground = array.getColor(/* index= */ 13, /* defValue= */ UNSET);
+     array.recycle();
+   }
+ 
+@@ -128,61 +141,61 @@ public class AospThemeImpl implements Theme {
+ 
+   @Override
+   public @ColorInt int getColorIcon() {
+-    Assert.checkArgument(colorIcon != -1);
++    Assert.checkArgument(colorIcon != UNSET);
+     return colorIcon;
+   }
+ 
+   @Override
+   public @ColorInt int getColorIconSecondary() {
+-    Assert.checkArgument(colorIconSecondary != -1);
++    Assert.checkArgument(colorIconSecondary != UNSET);
+     return colorIconSecondary;
+   }
+ 
+   @Override
+   public @ColorInt int getColorPrimary() {
+-    Assert.checkArgument(colorPrimary != -1);
++    Assert.checkArgument(colorPrimary != UNSET);
+     return colorPrimary;
+   }
+ 
+   @Override
+   public int getColorPrimaryDark() {
+-    Assert.checkArgument(colorPrimaryDark != -1);
++    Assert.checkArgument(colorPrimaryDark != UNSET);
+     return colorPrimaryDark;
+   }
+ 
+   @Override
+   public @ColorInt int getColorAccent() {
+-    Assert.checkArgument(colorAccent != -1);
++    Assert.checkArgument(colorAccent != UNSET);
+     return colorAccent;
+   }
+ 
+   @Override
+   public @ColorInt int getTextColorSecondary() {
+-    Assert.checkArgument(textColorSecondary != -1);
++    Assert.checkArgument(textColorSecondary != UNSET);
+     return textColorSecondary;
+   }
+ 
+   @Override
+   public @ColorInt int getTextColorPrimary() {
+-    Assert.checkArgument(textColorPrimary != -1);
++    Assert.checkArgument(textColorPrimary != UNSET);
+     return textColorPrimary;
+   }
+ 
+   @Override
+   public @ColorInt int getColorTextOnUnthemedDarkBackground() {
+-    Assert.checkArgument(colorTextOnUnthemedDarkBackground != -1);
++    Assert.checkArgument(colorTextOnUnthemedDarkBackground != UNSET);
+     return colorTextOnUnthemedDarkBackground;
+   }
+ 
+   @Override
+   public @ColorInt int getColorIconOnUnthemedDarkBackground() {
+-    Assert.checkArgument(colorIconOnUnthemedDarkBackground != -1);
++    Assert.checkArgument(colorIconOnUnthemedDarkBackground != UNSET);
+     return colorIconOnUnthemedDarkBackground;
+   }
+ 
+   @Override
+   public @ColorInt int getColorCallNotificationBackground() {
+-    Assert.checkArgument(colorCallNotificationBackground != -1);
++    Assert.checkArgument(colorCallNotificationBackground != UNSET);
+     return colorCallNotificationBackground;
+   }
+ }
+-- 
+2.43.0
+
