@@ -1,0 +1,48 @@
+From cd6a784dc52f1d9084c1e9c19074851b429d1ad7 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Fri, 1 May 2026 21:39:54 +0200
+Subject: [PATCH] eink: centre notification group thread bar under parent icon
+ (24dp -> 35dp)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Move the bar's left inset from 24dp to 35dp so its 2dp width is
+centred at 36dp — directly under the centre of the parent
+notification's 40dp icon (notification_2025_icon_circle_size starting
+at 16dp from the row's left edge: 16 + 40/2 = 36dp). The bar now
+visually drops straight from the parent's icon down through the
+indented children rather than sitting off to the icon's left.
+
+Change-Id: If8e0ae93a991602979ad687f1eb77948eae7ad57
+---
+ .../notification/row/NotificationBackgroundView.java  | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
+index 62253368c8c6..2cc87ff6ac4b 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
+@@ -108,13 +108,14 @@ public class NotificationBackgroundView extends View implements Dumpable,
+         mEinkThreadBarWidthPx = android.util.TypedValue.applyDimension(
+                 android.util.TypedValue.COMPLEX_UNIT_DIP, 2f,
+                 getResources().getDisplayMetrics());
+-        // Offset the bar into the gutter between the parent icon column and the
+-        // child text content (notification_content_margin_start = 72dp). 24dp
+-        // puts the bar roughly under the centre of where the parent's icon
+-        // sits, so the line visually drops from the parent down through the
++        // Centre the bar under the parent notification's icon. The 2025 template
++        // uses a 40dp icon (notification_2025_icon_circle_size) starting at 16dp
++        // from the row's left edge, so the icon's centre sits at 16 + 40/2 = 36dp.
++        // Place the 2dp bar's left edge at 35dp so its centre lands at 36dp,
++        // visually dropping straight from the parent's icon down through the
+         // indented children.
+         mEinkThreadBarLeftPx = android.util.TypedValue.applyDimension(
+-                android.util.TypedValue.COMPLEX_UNIT_DIP, 24f,
++                android.util.TypedValue.COMPLEX_UNIT_DIP, 35f,
+                 getResources().getDisplayMetrics());
+     }
+ 
+-- 
+2.43.0
+
