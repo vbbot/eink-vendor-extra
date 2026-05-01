@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E-Ink: hide the QS brightness slider by default. Brightness on the MP01 is
+  owned by the EinkCenter overlay (see project_eink_brightness.md) — exposing
+  a second drag-style slider in the QS shade is both redundant and unusable
+  on EPD (drag interaction reads slowly and ghosts the panel). Stock LineageOS
+  defaults the slider to "always show" (2); flip the underlying bool default
+  to false so LineageDatabaseHelper.loadBooleanSetting stores 0 = Never on
+  first boot.
+
+  Note: this only affects fresh installs / DB-upgrade boots. Existing devices
+  that have already populated LineageSettings.Secure with the prior value
+  will need to toggle the setting manually in Settings > Display > QS panel.
+-->
+<resources>
+    <bool name="def_qs_show_brightness_slider">false</bool>
+</resources>
