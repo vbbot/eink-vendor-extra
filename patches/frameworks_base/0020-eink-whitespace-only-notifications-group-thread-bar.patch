@@ -1,37 +1,52 @@
-From 14937b18d934a681862e8c8be18ffb87192932a6 Mon Sep 17 00:00:00 2001
+From 622c27743f69f3690e3bd1aa7766cfbd4e03b53f Mon Sep 17 00:00:00 2001
 From: Vasu Bhatia <git@vbh.ai>
 Date: Thu, 30 Apr 2026 23:57:44 +0200
-Subject: [PATCH] eink: whitespace-only notifications + group thread bar
+Subject: [PATCH 20/21] eink: whitespace-only notifications + group thread bar
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-Replace the previous flat-list-with-hairlines look with whitespace-only
-separation. The 1dp full-width black hairlines at every row's top edge
-read as too heavy on EPD against the white shade — they look like
-spreadsheet rules rather than paper. Independent notifications now
-have NO chrome at all; AOSP's existing notification_divider_height row
-spacing alone provides the visual separation, like paragraphs in a
-magazine.
+Replace the earlier rounded-card-with-border attempt for notifications
+with a whitespace-only flat list. AOSP applies flat corner radii to
+"stacked" rows beyond just group children — section boundaries and
+visually adjacent independents — so a card-border approach kept
+producing half-rounded or square shapes that read as broken with our
+explicit chrome. Drop the chrome entirely.
 
-Group children keep the 2dp vertical thread bar on the left edge — the
-sole visible affordance, communicating "this row belongs to the group
-above" like an email-thread or code-fold marker.
+Behaviour:
+  - Independent notifications get NO chrome at all. Separation comes
+    purely from AOSP's existing notification_divider_height row
+    spacing, like paragraphs in a magazine.
+  - Group children draw a 2dp vertical black bar inset 24dp from the
+    left edge, full row height. The 24dp inset places the bar in the
+    gutter between the parent icon column and the child text content
+    (notification_content_margin_start = 72dp), so the line visually
+    drops from beneath the parent's icon down through the indented
+    children — like an email-thread or code-fold marker.
 
-Implementation: - NotificationBackgroundView.drawEinkOverlay drops the top-hairline
-    drawRect and just draws the thread bar when mIsChildInGroup. The
-    unused mEinkHairlineHeightPx field is removed.
-  - mIsChildInGroup is plumbed from
-    ActivatableNotificationView.updateBackgroundClipping (unchanged
-    from the previous iteration).
-  - Both render paths in onDraw (legacy and new dismiss-on-hover) call
-    drawEinkOverlay so the bar appears regardless of the
+Implementation:
+  - NotificationBackgroundView gets an mEinkLinePaint, two cached
+    dp-to-px constants (2dp bar width, 24dp left inset) and an
+    mIsChildInGroup flag with a setIsChildInGroup setter. The new
+    drawEinkOverlay helper draws the bar when the flag is set.
+  - drawEinkOverlay is called from BOTH branches of onDraw (legacy
+    and new dismiss-on-hover) so the bar appears regardless of the
     NotificationAddXOnHoverToDismiss flag state.
-Change-Id: I2a2a2b0cf1709532c04b4896c3e4f685a31263c5
+  - ActivatableNotificationView.updateBackgroundClipping plumbs
+    isChildInGroup() to mBackgroundNormal alongside the existing
+    setBottomAmountClips call.
+
+The corner radii AOSP sets via setRadius become invisible — there's
+no fill differentiation between row and shade (both white) and no
+border to be clipped, so rounded-vs-square corners on the underlying
+shape don't show. Colorized notifications (media, app-tinted) keep
+their rounded edges since their fill colour differs from the shade.
+
+Change-Id: Ic2bf1bacb83a066f72b6064aa4c235a720c4ac3d
 ---
- .../row/ActivatableNotificationView.java      |  3 ++
- .../row/NotificationBackgroundView.java       | 48 +++++++++++++++++++
- 2 files changed, 51 insertions(+)
+ .../row/ActivatableNotificationView.java      |  3 +
+ .../row/NotificationBackgroundView.java       | 58 +++++++++++++++++++
+ 2 files changed, 61 insertions(+)
 
 diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ActivatableNotificationView.java b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ActivatableNotificationView.java
 index 43c09d4e806e..a1fef4190b73 100644
@@ -48,10 +63,10 @@ index 43c09d4e806e..a1fef4190b73 100644
  
      public void setIsBlurSupported(boolean isBlurSupported) {
 diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
-index a1987581fab3..c859f24b7082 100644
+index a1987581fab3..62253368c8c6 100644
 --- a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
 +++ b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
-@@ -52,6 +52,14 @@ import java.util.Arrays;
+@@ -52,6 +52,15 @@ import java.util.Arrays;
  public class NotificationBackgroundView extends View implements Dumpable,
          ExpandableNotificationRow.DismissButtonTargetVisibilityListener {
  
@@ -61,12 +76,13 @@ index a1987581fab3..c859f24b7082 100644
 +     *  setIsChildInGroup. */
 +    private final android.graphics.Paint mEinkLinePaint = new android.graphics.Paint();
 +    private final float mEinkThreadBarWidthPx;
++    private final float mEinkThreadBarLeftPx;
 +    private boolean mIsChildInGroup = false;
 +
      private final boolean mDontModifyCorners;
      private Drawable mBackground;
      private int mClipTopAmount;
-@@ -94,6 +102,23 @@ public class NotificationBackgroundView extends View implements Dumpable,
+@@ -94,6 +103,31 @@ public class NotificationBackgroundView extends View implements Dumpable,
                      com.android.internal.R.color.materialColorSurfaceContainerHigh);
          }
          mFocusOverlayStroke = getResources().getDimension(R.dimen.notification_focus_stroke_width);
@@ -74,6 +90,14 @@ index a1987581fab3..c859f24b7082 100644
 +        mEinkLinePaint.setStyle(android.graphics.Paint.Style.FILL);
 +        mEinkThreadBarWidthPx = android.util.TypedValue.applyDimension(
 +                android.util.TypedValue.COMPLEX_UNIT_DIP, 2f,
++                getResources().getDisplayMetrics());
++        // Offset the bar into the gutter between the parent icon column and the
++        // child text content (notification_content_margin_start = 72dp). 24dp
++        // puts the bar roughly under the centre of where the parent's icon
++        // sits, so the line visually drops from the parent down through the
++        // indented children.
++        mEinkThreadBarLeftPx = android.util.TypedValue.applyDimension(
++                android.util.TypedValue.COMPLEX_UNIT_DIP, 24f,
 +                getResources().getDisplayMetrics());
 +    }
 +
@@ -90,7 +114,7 @@ index a1987581fab3..c859f24b7082 100644
      }
  
      @Override
-@@ -121,6 +146,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
+@@ -121,6 +155,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
  
              if (!NotificationAddXOnHoverToDismiss.isEnabled()) {
                  draw(canvas, mBackground);
@@ -98,7 +122,7 @@ index a1987581fab3..c859f24b7082 100644
                  canvas.restore();
                  return;
              }
-@@ -139,10 +165,32 @@ public class NotificationBackgroundView extends View implements Dumpable,
+@@ -139,10 +174,33 @@ public class NotificationBackgroundView extends View implements Dumpable,
                  mBackground.draw(canvas);
              }
  
@@ -123,8 +147,9 @@ index a1987581fab3..c859f24b7082 100644
 +    private void drawEinkOverlay(Canvas canvas) {
 +        if (mBackground == null) return;
 +        if (mIsChildInGroup) {
-+            canvas.drawRect(0f, 0f, mEinkThreadBarWidthPx, getActualHeight(),
-+                    mEinkLinePaint);
++            canvas.drawRect(mEinkThreadBarLeftPx, 0f,
++                    mEinkThreadBarLeftPx + mEinkThreadBarWidthPx,
++                    getActualHeight(), mEinkLinePaint);
 +        }
 +    }
 +
