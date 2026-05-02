@@ -3,14 +3,21 @@
   EInkSystemUIOverlay — RRO targeting com.android.systemui for E-Ink-specific
   surface tweaks that the framework-level token flips in EInkFrameworkOverlay
   cannot reach (SystemUI-private resources, layout-side dimens, etc.).
-
-  Currently empty: as of Stage 1 of the system-wide e-ink overhaul, every
-  visible SystemUI surface in our test screenshots already renders correctly
-  thanks to the system_* token flips in EInkFrameworkOverlay. This overlay
-  exists as the landing pad for Stage 2 (status bar icon set, QS tile
-  borders, notification shade) and Stage 4 (volume dialog, power menu)
-  overrides — adding it now means those stages won't need to touch the
-  product makefile or the overlay scaffold.
 -->
 <resources>
+    <!-- Stage 4 Phase A: power menu Emergency button.
+         Stock SystemUI hardcodes a red/orange filled circle behind the Emergency
+         glyph in the long-press power menu (#F85D4D legacy / #D8372D new). On EPD
+         the saturated red reads muddy and ages unevenly; the B/W aesthetic forbids
+         non-greyscale tints. Flip the background to solid black so the button
+         remains highly distinguishable from the unfilled-glyph siblings (Power
+         off / Restart / Screenshot) — clearly the most important action — while
+         staying within the palette. The icon colour stays white (already #FFFFFF
+         in stock for the new variant; we also flip the legacy variant from
+         GM2_grey_900 to white so the visual is consistent regardless of which
+         path GlobalActionsDialogLite picks based on QsInCompose.isEnabled()). -->
+    <color name="global_actions_lite_emergency_background">#FF000000</color>
+    <color name="global_actions_lite_emergency_background_new_color">#FF000000</color>
+    <color name="global_actions_lite_emergency_icon">#FFFFFFFF</color>
+    <color name="global_actions_lite_emergency_icon_new_color">#FFFFFFFF</color>
 </resources>
