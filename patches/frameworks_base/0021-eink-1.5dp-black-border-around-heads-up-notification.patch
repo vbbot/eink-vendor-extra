@@ -1,0 +1,128 @@
+From 8e0a9a291a90106bbf16b69f4ec932610e9534de Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sat, 2 May 2026 09:43:32 +0200
+Subject: [PATCH] eink: 1.5dp black border around heads-up notifications
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Heads-up notifications float as banners over arbitrary foreground app
+content. With Stage 0's pure-white wallpaper and Stage 2 Phase B's
+chrome-less notification look, HUNs render white-on-white and
+camouflage entirely against the wallpaper — there is no visible
+boundary at all.
+
+Add a 1.5dp black stroke (matching the QS tile border weight from
+Stage 2 Phase A) around the HUN row's bounds so the banner stands out
+when floating. In-shade notifications (where this is false) keep the
+chrome-less flat-list look from patch 0020.
+
+Implementation: - NotificationBackgroundView gets an mEinkStrokePaint (Paint.STROKE,
+    1.5dp width, black) and an mIsHeadsUp flag with a setIsHeadsUp
+    setter. drawEinkOverlay draws a stroked rect inset by 0.75dp
+    (half stroke width) so the entire stroke sits inside the row's
+    bounds without being clipped.
+  - ExpandableNotificationRow.setHeadsUp plumbs the flag onto
+    mBackgroundNormal alongside the existing mPrivateLayout.setHeadsUp
+    plumbing.
+Change-Id: I4680646e71ed6ff392cc715d3df6d96a467b5af4
+---
+ .../row/ExpandableNotificationRow.java        |  6 +++
+ .../row/NotificationBackgroundView.java       | 39 +++++++++++++++++--
+ 2 files changed, 42 insertions(+), 3 deletions(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRow.java b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRow.java
+index 8a539747fa47..230c529d41bc 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRow.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRow.java
+@@ -1001,6 +1001,12 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
+         int intrinsicBefore = getIntrinsicHeight();
+         mIsHeadsUp = isHeadsUp;
+         mPrivateLayout.setHeadsUp(isHeadsUp);
++        // E-Ink: track heads-up state on the background view so it can draw a
++        // visible border around floating HUN banners (otherwise they camouflage
++        // as white-on-white over the white wallpaper).
++        if (mBackgroundNormal != null) {
++            mBackgroundNormal.setIsHeadsUp(isHeadsUp);
++        }
+         if (mIsSummaryWithChildren) {
+             // The overflow might change since we allow more lines as HUN.
+             mChildrenContainer.updateGroupOverflow();
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
+index 2cc87ff6ac4b..cfed75a8708d 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/notification/row/NotificationBackgroundView.java
+@@ -53,13 +53,18 @@ public class NotificationBackgroundView extends View implements Dumpable,
+         ExpandableNotificationRow.DismissButtonTargetVisibilityListener {
+ 
+     /** E-Ink: flat-list aesthetic. Group children get a 2dp vertical thread bar on
+-     *  the left edge as the group affordance — independent rows get no chrome and
+-     *  rely on AOSP row spacing for separation. See drawEinkOverlay and
+-     *  setIsChildInGroup. */
++     *  the left edge as the group affordance — independent rows in the shade get no
++     *  chrome and rely on AOSP row spacing for separation. Heads-up notifications
++     *  get a 1.5dp black border so they stand out against arbitrary app content
++     *  and the white default wallpaper (otherwise they camouflage as white-on-white).
++     *  See drawEinkOverlay, setIsChildInGroup, setIsHeadsUp. */
+     private final android.graphics.Paint mEinkLinePaint = new android.graphics.Paint();
++    private final android.graphics.Paint mEinkStrokePaint = new android.graphics.Paint();
+     private final float mEinkThreadBarWidthPx;
+     private final float mEinkThreadBarLeftPx;
++    private final float mEinkHunBorderWidthPx;
+     private boolean mIsChildInGroup = false;
++    private boolean mIsHeadsUp = false;
+ 
+     private final boolean mDontModifyCorners;
+     private Drawable mBackground;
+@@ -117,6 +122,14 @@ public class NotificationBackgroundView extends View implements Dumpable,
+         mEinkThreadBarLeftPx = android.util.TypedValue.applyDimension(
+                 android.util.TypedValue.COMPLEX_UNIT_DIP, 35f,
+                 getResources().getDisplayMetrics());
++        // Heads-up border is a 1.5dp black stroke. Match the QS tile border weight
++        // (Stage 2 Phase A) for visual consistency.
++        mEinkHunBorderWidthPx = android.util.TypedValue.applyDimension(
++                android.util.TypedValue.COMPLEX_UNIT_DIP, 1.5f,
++                getResources().getDisplayMetrics());
++        mEinkStrokePaint.setColor(android.graphics.Color.BLACK);
++        mEinkStrokePaint.setStyle(android.graphics.Paint.Style.STROKE);
++        mEinkStrokePaint.setStrokeWidth(mEinkHunBorderWidthPx);
+     }
+ 
+     /**
+@@ -131,6 +144,20 @@ public class NotificationBackgroundView extends View implements Dumpable,
+         invalidate();
+     }
+ 
++    /**
++     * E-Ink: tracks whether the row is currently displayed as a heads-up notification
++     * (floating banner over the foreground app). Heads-up rows draw a 1.5dp black
++     * border in {@link #onDraw} so they stand out against arbitrary app content and
++     * the white default wallpaper (without it they render as white-on-white and
++     * disappear). In-shade notifications (where this is false) keep the chrome-less
++     * flat-list look. Plumbed from {@link ExpandableNotificationRow#setHeadsUp}.
++     */
++    public void setIsHeadsUp(boolean isHeadsUp) {
++        if (mIsHeadsUp == isHeadsUp) return;
++        mIsHeadsUp = isHeadsUp;
++        invalidate();
++    }
++
+     @Override
+     public void onTargetVisibilityChanged(boolean targetVisible) {
+         if (NotificationAddXOnHoverToDismiss.isUnexpectedlyInLegacyMode()) {
+@@ -200,6 +227,12 @@ public class NotificationBackgroundView extends View implements Dumpable,
+                     mEinkThreadBarLeftPx + mEinkThreadBarWidthPx,
+                     getActualHeight(), mEinkLinePaint);
+         }
++        if (mIsHeadsUp) {
++            float inset = mEinkHunBorderWidthPx / 2f;
++            canvas.drawRect(inset, inset,
++                    getWidth() - inset, getActualHeight() - inset,
++                    mEinkStrokePaint);
++        }
+     }
+ 
+     private Path calculateDismissButtonCutoutPath(Rect backgroundBounds) {
+-- 
+2.43.0
+
