@@ -1,0 +1,68 @@
+From abde48704a354a8638266f5af1392f973afc9d28 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sat, 2 May 2026 11:06:49 +0200
+Subject: [PATCH] input: register EM (666) and MIC (667) keycode labels for
+ MP01
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Stock Minimal Phone MP01 firmware adds two non-AOSP keycodes for the
+dedicated emoji and microphone hardware keys on the device's QWERTY
+keyboard. The shipped Pastiera IME (vbbot/pastiera) checks keyCode ==
+666 (KEYCODE_EM) and keyCode == 667 (KEYCODE_MIC) directly to open
+its inline emoji picker and start speech-to-text respectively, with
+no fallback / remapping for the standard EMOJI_PICKER (317) or
+DICTATE (319) Android keycodes.
+
+Add EM and MIC entries to KEYCODES_SEQUENCE so the .kl parser
+(InputEventLookup::getKeyCodeByLabel) recognises them as valid
+labels. The aw9523b-key.kl keylayout for the MP01 keyboard then
+maps:
+
+    key 250  EM      # emoji-key scancode (0xfa) → keycode 666
+    key 251  MIC     # mic-key scancode (0xfb)   → keycode 667
+
+The DEFINE_KEYCODE macro is bypassed for these entries because there
+is no corresponding AKEYCODE_EM / AKEYCODE_MIC constant in
+include/android/keycodes.h — we deliberately avoid touching the
+public C header / KeyEvent.java since Pastiera uses the literal
+values (not constant references) and no other code in our tree
+references EM/MIC by name. Reverse lookup vec[666] / vec[667]
+(getLabelByKeyCode, used only by debug logging) returns nullptr
+because the value-indexed std::vector<InputEventLabel> ends at the
+last sequential entry; the forward .kl-label-to-int unordered_map
+lookup is what matters for keylayout parsing and works fine.
+
+Change-Id: Ia93aa5d548cefbb52877e0f8794155398545e3fb
+---
+ libs/input/InputEventLabels.cpp | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/libs/input/InputEventLabels.cpp b/libs/input/InputEventLabels.cpp
+index b537feb68f..5d61401065 100644
+--- a/libs/input/InputEventLabels.cpp
++++ b/libs/input/InputEventLabels.cpp
+@@ -369,7 +369,18 @@ namespace android {
+     DEFINE_KEYCODE(F21), \
+     DEFINE_KEYCODE(F22), \
+     DEFINE_KEYCODE(F23), \
+-    DEFINE_KEYCODE(F24)
++    DEFINE_KEYCODE(F24), \
++    /* MP01: dedicated emoji + mic hardware keys. Stock MP01 firmware adds these
++       same numeric keycodes; the prebuilt Pastiera IME (vbbot/pastiera) checks
++       keyCode == 666 / 667 directly to open its emoji picker / start speech-to-text.
++       Bypass the DEFINE_KEYCODE macro since there is no AKEYCODE_EM / AKEYCODE_MIC
++       in the C header — we only need the .kl-label-to-int forward lookup, which
++       reads from the unordered_map<string,int>. The reverse vec[value] lookup
++       (debug logging only) returns nullptr for these high values, harmlessly.
++       Brace-init {label,value} matches both unordered_map<string,int> AND
++       vector<InputEventLabel> initializers (KEYCODES_SEQUENCE feeds both). */ \
++    {"EM", 666}, \
++    {"MIC", 667}
+ 
+ // NOTE: If you add a new axis here you must also add it to several other files.
+ //       Refer to frameworks/base/core/java/android/view/MotionEvent.java for the full list.
+-- 
+2.43.0
+

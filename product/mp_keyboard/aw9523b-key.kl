@@ -249,15 +249,16 @@ key 226   HEADSETHOOK
 
 # MP01 dedicated keys (scancodes 249-252). Confirmed via getevent -lt:
 #   249 (0xf9) = SYM key      → KEYCODE_SYM (63)            consumed by Pastiera
-#   250 (0xfa) = emoji key    → KEYCODE_EMOJI_PICKER (317)  consumed by Pastiera
-#   251 (0xfb) = mic key      → KEYCODE_DICTATE (319)       consumed by Pastiera
+#   250 (0xfa) = emoji key    → KEYCODE_EM (666)            consumed by Pastiera
+#   251 (0xfb) = mic key      → KEYCODE_MIC (667)           consumed by Pastiera
 #   252        = refresh key  → KEYCODE_REFRESH             consumed by EinkCenter
-# EMOJI_PICKER and DICTATE are standard Android keycodes (AKEYCODE_EMOJI_PICKER /
-# AKEYCODE_DICTATE) — Pastiera fork must be updated to match these instead of
-# its hardcoded 666/667 placeholders.
+# EM and MIC are non-AOSP labels added by stock MP01 firmware to back the
+# same 666/667 numeric keycodes that the prebuilt Pastiera IME checks for
+# directly. We replicate this on our build by adding the EM/MIC entries to
+# InputEventLabels.cpp KEYCODES_SEQUENCE (see frameworks_base/native patch).
 key 249   SYM
-key 250   EMOJI_PICKER
-key 251   DICTATE
+key 250   EM
+key 251   MIC
 key 252   REFRESH
 
 key 256   BUTTON_1
