@@ -1,0 +1,59 @@
+From 9414dec24bbb36c0aed6e7365d9b5041b52a9e43 Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sat, 2 May 2026 11:23:39 +0200
+Subject: [PATCH] InputMethodManager: stop intercepting KEYCODE_SYM for picker
+
+Stock InputMethodManager.dispatchInputEvent intercepts ACTION_DOWN on
+KEYCODE_SYM with repeatCount == 0 and calls showInputMethodPickerLocked
+to bring up the language / IME switcher. The hijack happens BEFORE the
+event reaches the active IME, so the IME never sees the key.
+
+On the MP01 the dedicated hardware SYM key (scancode 249) is consumed
+by Pastiera (the only IME shipped on this build) to toggle its inline
+symbols / emoji / clipboard pages. With the stock interception in
+place, every press of the SYM key just opens a one-item input-method
+picker and Pastiera's symbols panel is unreachable.
+
+Drop the four-line interception so the SYM key flows through to the
+IME normally. Single-IME builds lose nothing (the picker has no
+choices to make). Multi-IME users can still switch via
+Settings > System > Languages or via the IME's own UI.
+
+Change-Id: I97416dad3dc646883207b5509f4ee02817cd49b2
+---
+ .../view/inputmethod/InputMethodManager.java  | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/core/java/android/view/inputmethod/InputMethodManager.java b/core/java/android/view/inputmethod/InputMethodManager.java
+index f6c61140201e..7868e7a3a179 100644
+--- a/core/java/android/view/inputmethod/InputMethodManager.java
++++ b/core/java/android/view/inputmethod/InputMethodManager.java
+@@ -4352,15 +4352,16 @@ public final class InputMethodManager {
+             FinishedInputEventCallback callback, Handler handler) {
+         synchronized (mH) {
+             if (isImeSessionAvailableLocked()) {
+-                if (event instanceof KeyEvent) {
+-                    KeyEvent keyEvent = (KeyEvent)event;
+-                    if (keyEvent.getAction() == KeyEvent.ACTION_DOWN
+-                            && keyEvent.getKeyCode() == KeyEvent.KEYCODE_SYM
+-                            && keyEvent.getRepeatCount() == 0) {
+-                        showInputMethodPickerLocked();
+-                        return DISPATCH_HANDLED;
+-                    }
+-                }
++                // E-Ink / MP01: drop the stock SYM-as-input-method-picker shortcut.
++                // The MP01's hardware SYM key is consumed by Pastiera (the only
++                // IME shipped on this build) to flip its inline symbols / emoji
++                // pages. Stock IMM intercepts KEYCODE_SYM on ACTION_DOWN and
++                // shows the input-method picker, swallowing the event before
++                // the IME ever sees it. Since we ship a single IME and the
++                // user isn't switching languages from this key, just let the
++                // event flow through to Pastiera. (If a multi-IME setup is
++                // needed in the future, switch via Settings > Languages.)
++
+ 
+                 if (android.tracing.Flags.imetrackerProtolog()) {
+                     ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "DISPATCH INPUT EVENT: %s",
+-- 
+2.43.0
+
