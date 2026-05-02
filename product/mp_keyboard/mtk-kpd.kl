@@ -1,1 +1,17 @@
+# MP01 mtk-kpd keylayout. The mtk-kpd controller handles the dedicated e-ink
+# REFRESH button (scancode 252) AND the side hardware volume-down button
+# (scancode 114 — confirmed via `getevent -lt` showing KEY_VOLUMEDOWN on
+# /dev/input/event1 when the side button is pressed). Volume-up on this
+# device comes from the physical QWERTY keyboard via the aw9523b controller
+# (see aw9523b-key.kl), not from mtk-kpd.
+#
+# We override the stock mtk-kpd.kl to add the REFRESH mapping; if the
+# override does not also map VOLUME_DOWN the InputDispatcher silently drops
+# the scancode and the side button reads as completely dead (no logs at any
+# level — the dispatcher discards before logging). VOLUME_UP is mapped
+# defensively in case any future hardware revision wires a corresponding
+# rocker through mtk-kpd; on current hardware scancode 115 never fires here
+# so the line is harmless.
+key 114   VOLUME_DOWN
+key 115   VOLUME_UP
 key 252   REFRESH
