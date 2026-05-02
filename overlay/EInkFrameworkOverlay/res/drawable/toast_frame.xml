@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E-Ink: outline the toast frame (Stage 4 Phase C). Stock toast_frame is a
+  rounded rectangle with no border; against the white wallpaper / arbitrary
+  app content under it the toast camouflages just like the volume dialog
+  did. Add a 1.5dp black stroke matching the volume / HUN / QS tile borders.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+       android:shape="rectangle">
+    <solid android:color="?android:attr/colorBackgroundFloating" />
+    <corners android:radius="28dp" />
+    <stroke android:width="1.5dp" android:color="#FF000000" />
+</shape>
