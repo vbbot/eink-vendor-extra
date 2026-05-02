@@ -73,7 +73,7 @@ key 50    M
 key 51    COMMA
 key 52    PERIOD
 key 53    SLASH
-key 54    SHIFT_RIGHT
+key 54    CTRL_LEFT          # MP01: right shift remapped to Ctrl_Left so e.g. RShift+C = copy
 key 55    NUMPAD_MULTIPLY
 key 56    ALT_LEFT
 key 57    SPACE
@@ -247,10 +247,17 @@ key 224   BRIGHTNESS_DOWN
 key 225   BRIGHTNESS_UP
 key 226   HEADSETHOOK
 
-#msx-add:
+# MP01 dedicated keys (scancodes 249-252). Confirmed via getevent -lt:
+#   249 (0xf9) = SYM key      → KEYCODE_SYM (63)            consumed by Pastiera
+#   250 (0xfa) = emoji key    → KEYCODE_EMOJI_PICKER (317)  consumed by Pastiera
+#   251 (0xfb) = mic key      → KEYCODE_DICTATE (319)       consumed by Pastiera
+#   252        = refresh key  → KEYCODE_REFRESH             consumed by EinkCenter
+# EMOJI_PICKER and DICTATE are standard Android keycodes (AKEYCODE_EMOJI_PICKER /
+# AKEYCODE_DICTATE) — Pastiera fork must be updated to match these instead of
+# its hardcoded 666/667 placeholders.
 key 249   SYM
-key 250   PICTSYMBOLS
-key 251   PERIOD
+key 250   EMOJI_PICKER
+key 251   DICTATE
 key 252   REFRESH
 
 key 256   BUTTON_1
