@@ -28,8 +28,13 @@
     android:baselineAligned="false"
     android:filterTouchesWhenObscured="false">
 
+    <!-- 1dp tall, inset 32dp from each side so the line reads as a subtle
+         section break rather than a hard full-width rule. Any thinner than
+         1dp won't reliably render at typical EPD pixel density. -->
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
+        android:layout_marginStart="32dp"
+        android:layout_marginEnd="32dp"
         android:background="#FF000000" />
 </LinearLayout>

@@ -1,0 +1,60 @@
+From 47dee85f1f6a11f69dc72940df6cebf6954a957c Mon Sep 17 00:00:00 2001
+From: Vasu Bhatia <git@vbh.ai>
+Date: Sun, 3 May 2026 13:41:32 +0200
+Subject: [PATCH] SettingsLib: hide empty UntitledPreferenceCategory rows
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Stock UntitledPreferenceCategory always renders its layout, even when
+the category has no Preference children. The visible result is
+typically nothing (the stock layout is a 12dp empty spacer
+LinearLayout), which is imperceptible. With our EInkSettingsOverlay
+override that puts a 1dp hairline inside the spacer to mark section
+breaks, empty placeholder categories — e.g. top_level_account_category
+in Settings' top_level_settings_expressive.xml, which only hosts
+dynamically-injected items not present on this build — render an
+extra hairline next to their neighbouring section's hairline,
+producing visible double dividers.
+
+Hide the itemView when preferenceCount == 0 in onBindViewHolder so
+empty categories collapse entirely. Non-empty categories still render
+their layout (and our hairline) as before.
+
+Change-Id: I6dceca05817875e43c782726921d075f92c3d650
+---
+ .../settingslib/widget/UntitledPreferenceCategory.kt | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/packages/SettingsLib/Category/src/com/android/settingslib/widget/UntitledPreferenceCategory.kt b/packages/SettingsLib/Category/src/com/android/settingslib/widget/UntitledPreferenceCategory.kt
+index a8de61937dc1..25ee62ec81ae 100644
+--- a/packages/SettingsLib/Category/src/com/android/settingslib/widget/UntitledPreferenceCategory.kt
++++ b/packages/SettingsLib/Category/src/com/android/settingslib/widget/UntitledPreferenceCategory.kt
+@@ -18,6 +18,7 @@ package com.android.settingslib.widget
+ 
+ import android.content.Context
+ import android.util.AttributeSet
++import android.view.View
+ import androidx.preference.PreferenceCategory
+ import androidx.preference.PreferenceViewHolder
+ import com.android.settingslib.widget.category.R
+@@ -44,5 +45,16 @@ constructor(
+         super.onBindViewHolder(holder)
+         holder.isDividerAllowedAbove = false
+         holder.isDividerAllowedBelow = false
++        // E-Ink: hide the category entirely when it has no children. The
++        // EInkSettingsOverlay overrides the layout to draw a 1dp hairline as
++        // a section divider; without this hide, empty placeholder categories
++        // (e.g. top_level_account_category in top_level_settings_expressive.xml,
++        // which only hosts dynamically-injected items not present on this
++        // build) would still render their layout and draw a hairline,
++        // producing visible double dividers between the surrounding non-empty
++        // sections. Stock has no visible content so the empty render is
++        // imperceptible there; with our hairline override it becomes visible.
++        holder.itemView.visibility =
++            if (preferenceCount == 0) View.GONE else View.VISIBLE
+     }
+ }
+-- 
+2.43.0
+
