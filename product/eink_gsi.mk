@@ -2,6 +2,7 @@ PRODUCT_PACKAGES += \
     EInkFrameworkOverlay \
     EInkSystemUIOverlay \
     EInkLineageSettingsOverlay \
+    EInkSettingsOverlay \
     vendor.vbbot.eink-service
 
 # inkOS launcher (default home) and Pastiera physical-keyboard IME (default IME).

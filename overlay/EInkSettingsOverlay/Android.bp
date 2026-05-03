@@ -1,0 +1,4 @@
+runtime_resource_overlay {
+    name: "EInkSettingsOverlay",
+    product_specific: true,
+}

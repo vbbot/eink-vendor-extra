@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stage 5: flatten Settings homepage tile icons.
+
+  Stock Settings uses an AdaptiveIconShapeDrawable (a coloured circle) behind
+  every dashboard tile icon, with a saturated foreground glyph in the matching
+  hue (Network=blue, Notifications=pink, Display=orange, etc.). The pattern is:
+
+      ic_homepage_<tile>.xml = layer-list:
+          [0] AdaptiveIconShapeDrawable color=@color/homepage_<tile>_background
+          [1] TintDrawable tint=@color/homepage_<tile>_foreground
+
+  Each *_background ultimately resolves to one of ~10 homepage_<colour>_bg
+  tokens, and each *_foreground to ~10 homepage_<colour>_fg tokens. Override
+  the chokepoint:
+
+      *_bg -> transparent  (the coloured circle disappears against the white
+                            shade so only the foreground glyph remains)
+      *_fg -> opaque black (the glyph reads as a clean B/W silhouette)
+
+  The Material 3 reference palette (m3_ref_palette_*_30 / *_90) that these
+  ultimately reference is left alone — it's used by other parts of Settings
+  (chips, charts, etc.) and we only want the homepage icons flattened. By
+  overriding at the homepage_*_bg / homepage_*_fg layer we scope the change
+  to the dashboard icons only.
+-->
+<resources>
+    <!-- Backgrounds: kill the coloured circle behind every tile icon. -->
+    <color name="homepage_blue_bg">@android:color/transparent</color>
+    <color name="homepage_blue_variant_bg">@android:color/transparent</color>
+    <color name="homepage_pink_bg">@android:color/transparent</color>
+    <color name="homepage_orange_bg">@android:color/transparent</color>
+    <color name="homepage_yellow_bg">@android:color/transparent</color>
+    <color name="homepage_green_bg">@android:color/transparent</color>
+    <color name="homepage_grey_bg">@android:color/transparent</color>
+    <color name="homepage_cyan_bg">@android:color/transparent</color>
+    <color name="homepage_red_bg">@android:color/transparent</color>
+    <color name="homepage_purple_bg">@android:color/transparent</color>
+
+    <!-- Foregrounds: tint every tile glyph black. -->
+    <color name="homepage_blue_fg">#FF000000</color>
+    <color name="homepage_blue_variant_fg">#FF000000</color>
+    <color name="homepage_pink_fg">#FF000000</color>
+    <color name="homepage_orange_fg">#FF000000</color>
+    <color name="homepage_yellow_fg">#FF000000</color>
+    <color name="homepage_green_fg">#FF000000</color>
+    <color name="homepage_grey_fg">#FF000000</color>
+    <color name="homepage_cyan_fg">#FF000000</color>
+    <color name="homepage_red_fg">#FF000000</color>
+    <color name="homepage_purple_fg">#FF000000</color>
+</resources>
