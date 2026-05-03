@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stage 5: hairline divider between Settings PreferenceCategory groups.
+
+  Stock Settings uses an empty LinearLayout with 12dp marginTop as the
+  "untitled" PreferenceCategory layout — this draws the visible gap
+  between dashboard sections (e.g. Network/Connected/Apps vs.
+  Notifications/Sound/Modes vs. Display). On the white EPD shade the
+  gap is invisible because there's no contrast.
+
+  Replace the empty LinearLayout with a vertically-padded container
+  that holds a single 1dp full-width black hairline, centred in what
+  was previously just empty space. The hairline reads as a clean
+  KOReader-style section divider, with equal 6dp whitespace above and
+  below so the visual rhythm of the page matches stock spacing.
+
+  Untitled categories are the implicit "section break" between
+  preference groups. Titled categories (with a header label) keep
+  their stock layout — they already have visible structure (the
+  title text itself separates the section).
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="6dp"
+    android:paddingBottom="6dp"
+    android:baselineAligned="false"
+    android:filterTouchesWhenObscured="false">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#FF000000" />
+</LinearLayout>
